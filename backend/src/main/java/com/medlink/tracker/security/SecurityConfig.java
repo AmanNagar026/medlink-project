@@ -3,6 +3,7 @@ package com.medlink.tracker.security;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -40,6 +41,10 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/api/doctor/**").hasRole("DOCTOR")
+                .requestMatchers(HttpMethod.POST, "/api/patient").hasAnyRole("DOCTOR", "PATIENT")
+                .requestMatchers(HttpMethod.GET, "/api/patient/doctor/**").hasRole("DOCTOR")
+                .requestMatchers(HttpMethod.GET, "/api/patient/search").hasRole("DOCTOR")
+                .requestMatchers(HttpMethod.GET, "/api/patient/*").hasAnyRole("DOCTOR", "PATIENT")
                 .requestMatchers("/api/patient/**").hasRole("PATIENT")
                 .requestMatchers("/api/medications/search").authenticated()
                 .anyRequest().authenticated()

@@ -5,6 +5,10 @@ import { Text } from 'react-native';
 import DoctorDashboard from '../screens/doctor/DoctorDashboard';
 import CreatePrescription from '../screens/doctor/CreatePrescription';
 import PatientList from '../screens/doctor/PatientList';
+import PatientSearchScreen from '../screens/doctor/PatientSearchScreen';
+import AddPatientScreen from '../screens/doctor/AddPatientScreen';
+import DoctorProfileScreen from '../screens/doctor/DoctorProfileScreen';
+import DoctorViewProfileScreen from '../screens/doctor/DoctorViewProfileScreen';
 import COLORS from '../utils/colors';
 
 const Tab = createBottomTabNavigator();
@@ -15,6 +19,10 @@ const DashboardStack = () => (
     <Stack.Screen name="DoctorDashboard" component={DoctorDashboard} />
     <Stack.Screen name="CreatePrescription" component={CreatePrescription} />
     <Stack.Screen name="PatientList" component={PatientList} />
+    <Stack.Screen name="AddPatient" component={AddPatientScreen} />
+    <Stack.Screen name="PatientSearch" component={PatientSearchScreen} />
+    <Stack.Screen name="Profile" component={DoctorViewProfileScreen} />
+    <Stack.Screen name="EditProfile" component={DoctorProfileScreen} />
   </Stack.Navigator>
 );
 
@@ -42,7 +50,7 @@ const DoctorNavigator = () => (
         shadowRadius: 8,
       },
       tabBarIcon: ({ focused }) => {
-        const icons = { Home: '🏥', Patients: '👥', Prescriptions: '📋' };
+        const icons = { Home: '🏥', Patients: '👥', Search: '🔍', Prescriptions: '📋' };
         return (
           <Text
             style={{
@@ -58,6 +66,7 @@ const DoctorNavigator = () => (
   >
     <Tab.Screen name="Home" component={DashboardStack} />
     <Tab.Screen name="Patients" component={PatientList} />
+    <Tab.Screen name="Search" component={PatientSearchScreen} />
     <Tab.Screen
       name="Prescriptions"
       component={CreatePrescription}

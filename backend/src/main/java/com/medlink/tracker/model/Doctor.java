@@ -24,6 +24,9 @@ public class Doctor {
     private String hospital;
     private String department;
 
+    // Optional profile image URL for doctor avatar
+    private String profileImageUrl;
+
     private int yearsOfExperience;
     private List<String> qualifications;
 
@@ -65,6 +68,9 @@ public class Doctor {
 
     public String getDepartment() { return department; }
     public void setDepartment(String department) { this.department = department; }
+
+    public String getProfileImageUrl() { return profileImageUrl; }
+    public void setProfileImageUrl(String profileImageUrl) { this.profileImageUrl = profileImageUrl; }
 
     public int getYearsOfExperience() { return yearsOfExperience; }
     public void setYearsOfExperience(int yearsOfExperience) { this.yearsOfExperience = yearsOfExperience; }

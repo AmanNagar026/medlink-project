@@ -20,6 +20,18 @@ export const medicationService = {
 
   updateIntakeStatus: (logId, status) =>
     api.patch(`/medications/intake/${logId}/status`, { status }),
+
+  // Schedule medication for patient
+  scheduleMedication: (medication) => api.post('/medications/schedule', medication),
+
+  // Get patient's medication schedule
+  getSchedule: (patientId) => api.get(`/medications/schedule/${patientId}`),
+
+  // Update schedule
+  updateSchedule: (scheduleId, schedule) => api.put(`/medications/schedule/${scheduleId}`, schedule),
+
+  // Delete schedule
+  deleteSchedule: (scheduleId) => api.delete(`/medications/schedule/${scheduleId}`),
 };
 
 export default medicationService;

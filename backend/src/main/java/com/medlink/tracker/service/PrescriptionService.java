@@ -29,7 +29,29 @@ public class PrescriptionService {
     }
 
     public List<Prescription> getByDoctorId(String doctorId) {
-        return prescriptionRepository.findByDoctorId(doctorId);
+        List<Prescription> prescriptions = prescriptionRepository.findByDoctorId(doctorId);
+        // Compute status based on expiry date
+        LocalDate today = LocalDate.now();
+        for (Prescription rx : prescriptions) {
+            String computedStatus = computeStatus(rx, today);
+            rx.setStatus(computedStatus);
+        }
+        return prescriptions;
+    }
+
+    private String computeStatus(Prescription rx, LocalDate today) {
+        if (rx.getExpiryDate() == null) return rx.getStatus() != null ? rx.getStatus() : "ACTIVE";
+        
+        // If manually marked as completed, respect that
+        if ("COMPLETED".equals(rx.getStatus())) return "COMPLETED";
+        if ("CANCELLED".equals(rx.getStatus())) return "CANCELLED";
+        
+        LocalDate expiry = rx.getExpiryDate();
+        long daysUntilExpiry = today.until(expiry).getDays();
+        
+        if (daysUntilExpiry < 0) return "EXPIRED";
+        if (daysUntilExpiry <= 7) return "EXPIRING_SOON";
+        return "ACTIVE";
     }
 
     public Prescription getById(String id) {

@@ -27,7 +27,7 @@ const SplashScreen = () => {
     <View style={styles.container}>
       <Animated.View style={[styles.content, { opacity, transform: [{ scale }] }]}>
         <View style={styles.logoIcon}>
-          <ECGLogo size={40} color={COLORS.white} />
+          <ECGLogo size={80} />
         </View>
         <Text style={styles.name}>MedLink</Text>
         <Text style={styles.tagline}>Your Health, Managed Smartly</Text>

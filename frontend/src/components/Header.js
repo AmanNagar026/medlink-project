@@ -1,15 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   Platform,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import COLORS from '../utils/colors';
-import { TYPOGRAPHY, SPACING, RADIUS } from '../utils/theme';
+import { TYPOGRAPHY, SPACING, RADIUS, SHADOW } from '../utils/theme';
 import ECGLogo from './ECGLogo';
 
 const Header = ({
@@ -23,19 +24,22 @@ const Header = ({
   activeTab,
   navigation,
   user,
+  onLogout,
 }) => {
+  const [menuVisible, setMenuVisible] = useState(false);
   const isDashboard = !onBack && title;
   const displayFullNav = (showLogo === true || isDashboard) && role && user && navigation;
 
   const patientTabs = [
     { key: 'Dashboard', label: 'Dashboard' },
     { key: 'Schedule', label: 'Schedule' },
+    { key: 'Vitals', label: 'My Vitals' },
     { key: 'History', label: 'History' },
-    { key: 'Reminders', label: 'My Info' },
   ];
   const doctorTabs = [
     { key: 'Home', label: 'Dashboard' },
     { key: 'Prescriptions', label: 'New Prescription' },
+    { key: 'Patients', label: 'Patients' },
   ];
   const tabs = role === 'DOCTOR' ? doctorTabs : patientTabs;
 
@@ -53,7 +57,7 @@ const Header = ({
           <View style={styles.container}>
             <View style={styles.content}>
               <View style={styles.left}>
-                <ECGLogo size={22} color={COLORS.white} style={styles.ecg} />
+                <ECGLogo size={36} style={styles.ecg} />
                 <Text style={styles.logoText}>MedLink</Text>
               </View>
               <View style={styles.navRow}>
@@ -78,12 +82,19 @@ const Header = ({
               </View>
               <View style={styles.right}>
                 {rightAction}
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>{initials}</Text>
-                </View>
-                <Text style={styles.userName} numberOfLines={1}>
-                  {user?.name || 'User'}
-                </Text>
+                <TouchableOpacity 
+                  style={styles.avatarContainer}
+                  onPress={() => setMenuVisible(true)}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>{initials}</Text>
+                  </View>
+                  <Text style={styles.userName} numberOfLines={1}>
+                    {user?.name || 'User'}
+                  </Text>
+                  <Text style={styles.dropdownIcon}>▼</Text>
+                </TouchableOpacity>
               </View>
             </View>
             <View style={styles.greetingBlock}>
@@ -128,6 +139,81 @@ const Header = ({
           </View>
         </View>
       )}
+      {/* Dropdown Menu Modal */}
+      <Modal
+        visible={menuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMenuVisible(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          onPress={() => setMenuVisible(false)}
+          activeOpacity={1}
+        >
+          <View style={styles.menuContainer}>
+            <View style={styles.menuHeader}>
+              <View style={styles.menuAvatar}>
+                <Text style={styles.menuAvatarText}>{initials}</Text>
+              </View>
+              <View>
+                <Text style={styles.menuUserName}>{user?.name || 'User'}</Text>
+                <Text style={styles.menuUserRole}>{role === 'DOCTOR' ? 'Doctor' : 'Patient'}</Text>
+              </View>
+            </View>
+            
+            <View style={styles.menuDivider} />
+            
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={() => {
+                setMenuVisible(false);
+                navigation?.navigate('Profile');
+              }}
+            >
+              <Text style={styles.menuIcon}>👤</Text>
+              <Text style={styles.menuText}>Profile</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={() => {
+                setMenuVisible(false);
+                navigation?.navigate('Settings');
+              }}
+            >
+              <Text style={styles.menuIcon}>⚙️</Text>
+              <Text style={styles.menuText}>Settings</Text>
+            </TouchableOpacity>
+            
+            {role === 'PATIENT' && (
+              <TouchableOpacity 
+                style={styles.menuItem}
+                onPress={() => {
+                  setMenuVisible(false);
+                  navigation?.navigate('Vitals');
+                }}
+              >
+                <Text style={styles.menuIcon}>🩺</Text>
+                <Text style={styles.menuText}>My Vitals</Text>
+              </TouchableOpacity>
+            )}
+            
+            <View style={styles.menuDivider} />
+            
+            <TouchableOpacity 
+              style={[styles.menuItem, styles.logoutItem]}
+              onPress={() => {
+                setMenuVisible(false);
+                onLogout?.();
+              }}
+            >
+              <Text style={styles.menuIcon}>🚪</Text>
+              <Text style={[styles.menuText, styles.logoutText]}>Logout</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -198,6 +284,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  avatarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   avatar: {
     width: 36,
     height: 36,
@@ -217,6 +307,82 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     maxWidth: 100,
+  },
+  dropdownIcon: {
+    color: COLORS.white,
+    fontSize: 10,
+    marginLeft: SPACING.xs,
+    opacity: 0.8,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+    paddingTop: 80,
+    paddingRight: SPACING.lg,
+  },
+  menuContainer: {
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS.lg,
+    minWidth: 220,
+    ...SHADOW.cardElevated,
+    overflow: 'hidden',
+  },
+  menuHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: SPACING.lg,
+    backgroundColor: COLORS.primaryLight + '20',
+  },
+  menuAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.md,
+  },
+  menuAvatarText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  menuUserName: {
+    ...TYPOGRAPHY.label,
+    color: COLORS.textPrimary,
+  },
+  menuUserRole: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    fontSize: 12,
+  },
+  menuDivider: {
+    height: 1,
+    backgroundColor: COLORS.border,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: SPACING.md,
+    paddingHorizontal: SPACING.lg,
+  },
+  menuIcon: {
+    fontSize: 18,
+    marginRight: SPACING.md,
+    width: 24,
+  },
+  menuText: {
+    ...TYPOGRAPHY.body,
+    color: COLORS.textPrimary,
+    fontSize: 15,
+  },
+  logoutItem: {
+    backgroundColor: COLORS.dangerLight + '30',
+  },
+  logoutText: {
+    color: COLORS.danger,
   },
   backButton: {
     marginRight: SPACING.md,

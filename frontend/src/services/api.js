@@ -20,12 +20,36 @@ const getHeaders = async (includeAuth = true) => {
 };
 
 const handleResponse = async (response) => {
-  const data = await response.json();
-  console.log('API Response:', response.status, data); // debug
-  if (!response.ok) {
-    throw new Error(data.error || `HTTP error ${response.status}`);
+  const contentType = response.headers.get('content-type');
+  
+  // Handle empty responses
+  if (!contentType || !contentType.includes('application/json')) {
+    if (response.status === 204 || response.status === 205) {
+      return null; // No content
+    }
+    if (response.status >= 200 && response.status < 300) {
+      return {}; // Empty successful response
+    }
   }
-  return data;
+  
+  try {
+    const data = await response.json();
+    console.log('API Response:', response.status, data); // debug
+    if (!response.ok) {
+      throw new Error(data.error || `HTTP error ${response.status}`);
+    }
+    return data;
+  } catch (error) {
+    // Handle JSON parsing errors
+    if (error instanceof SyntaxError) {
+      console.error('JSON parsing error:', error);
+      if (response.status >= 200 && response.status < 300) {
+        return {}; // Return empty object for successful responses with invalid JSON
+      }
+      throw new Error(`Invalid JSON response from server`);
+    }
+    throw error;
+  }
 };
 
 export const api = {

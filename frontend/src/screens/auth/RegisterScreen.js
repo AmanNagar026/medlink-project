@@ -90,7 +90,7 @@ const RegisterScreen = ({ navigation }) => {
         >
           <View style={styles.card}>
             <View style={styles.logoCircle}>
-              <ECGLogo size={32} color="#fff" />
+              <ECGLogo size={60} />
             </View>
 
             <Text style={styles.title}>Join MedLink</Text>
