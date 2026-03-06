@@ -1,557 +1,160 @@
-import React, { useState, useCallback } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Alert,
-  SafeAreaView,
-} from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
-import { useAuth } from '../../context/AuthContext';
-import ECGLogo from '../../components/ECGLogo';
-import medicationService from '../../services/medicationService';
+import React, { useState, useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import COLORS from '../../utils/colors';
-import { SPACING, TYPOGRAPHY, RADIUS, SHADOW } from '../../utils/theme';
 
-const MedicationSchedule = ({ navigation }) => {
-  const { user } = useAuth();
-  const [intakes, setIntakes] = useState([]);
+const MedicationSchedule = () => {
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [completedDoses, setCompletedDoses] = useState({}); // Changed to object to track doses per date
+  const [filter, setFilter] = useState('All');
 
-  const loadIntakes = async (date) => {
-    if (!user?.profileId) return;
-    try {
-      const dateStr = date.toISOString().split('T')[0];
-      const data = await medicationService.getIntakesByDate(
-        user.profileId,
-        dateStr
-      );
-      setIntakes(data);
-    } catch (err) {
-      console.error('Load intakes error:', err);
-    }
-  };
-
-  useFocusEffect(useCallback(() => {
-    loadIntakes(selectedDate);
-  }, [selectedDate]));
-
-  const getDayDates = () => {
-    const dates = [];
-    const today = new Date();
-    for (let i = -3; i <= 3; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() + i);
-      dates.push(d);
-    }
-    return dates;
-  };
-
-  const isSelected = (date) =>
-    date.toDateString() === selectedDate.toDateString();
-
-  const isToday = (date) =>
-    date.toDateString() === new Date().toDateString();
-
-  const handleTake = async (med) => {
-    try {
-      await medicationService.updateIntakeStatus(med.id, 'TAKEN');
-      loadIntakes(selectedDate);
-    } catch (err) {
-      Alert.alert('Error', 'Could not update medication status');
-    }
-  };
-
-  // Group medications by time of day
-  const groupByTimeOfDay = (meds) => {
-    const groups = {
-      morning: [],
-      afternoon: [],
-      evening: [],
-      asNeeded: [],
-    };
-    
-    meds.forEach(med => {
-      const hour = parseInt(med.scheduledTime?.split(':')[0]) || 0;
-      const isAm = med.scheduledTime?.includes('AM');
-      
-      if (med.frequency === 'AS_NEEDED') {
-        groups.asNeeded.push(med);
-      } else if ((isAm && hour >= 5 && hour < 12) || (hour >= 5 && hour < 12)) {
-        groups.morning.push(med);
-      } else if ((isAm && hour >= 12) || (!isAm && hour < 5) || (hour >= 12 && hour < 17)) {
-        groups.afternoon.push(med);
-      } else {
-        groups.evening.push(med);
-      }
+  // 1. Generate 14 days for the scroller
+  const dates = useMemo(() => {
+    return Array.from({ length: 14 }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - 3 + i);
+      return d;
     });
+  }, []);
+
+  // 2. Logic to change data based on selected date
+  // In your real app, this is where you fetch from Spring Boot: 
+  // axios.get(`/api/medications?date=${selectedDate.toISOString()}`)
+  const getScheduleForDate = (date) => {
+    const day = date.getDay();
+    const dateKey = date.toDateString();
+
+    // Example: Different meds for weekends vs weekdays
+    if (day === 0 || day === 6) {
+      return [
+        { id: `${dateKey}-1`, time: '09:00 AM', name: 'Vitamin D3', dose: '1000 IU', instructions: 'Weekend Supplement', color: '#F1C40F' },
+        { id: `${dateKey}-2`, time: '10:00 PM', name: 'Magnesium', dose: '200mg', instructions: 'Before sleep', color: '#9B59B6' },
+      ];
+    }
     
-    return groups;
+    return [
+      { id: `${dateKey}-1`, time: '08:00 AM', name: 'Atorvastatin', dose: '20mg', instructions: 'After breakfast', color: '#4ECDC4' },
+      { id: `${dateKey}-2`, time: '01:00 PM', name: 'Metformin', dose: '500mg', instructions: 'With lunch', color: '#FF6B6B' },
+      { id: `${dateKey}-3`, time: '09:00 PM', name: 'Lisinopril', dose: '10mg', instructions: 'Before bed', color: '#45B7D1' },
+    ];
   };
 
-  const groupedMeds = groupByTimeOfDay(intakes);
-  const pendingCount = intakes.filter((i) => i.status === 'PENDING').length;
+  const currentSchedule = getScheduleForDate(selectedDate);
+  const dateKey = selectedDate.toDateString();
 
-  const formatDateHeader = (date) => {
-    const options = { day: 'numeric', month: 'short', year: 'numeric' };
-    return date.toLocaleDateString('en-GB', options);
+  const toggleDose = (id) => {
+    setCompletedDoses(prev => ({
+      ...prev,
+      [dateKey]: prev[dateKey]?.includes(id) 
+        ? prev[dateKey].filter(itemId => itemId !== id) 
+        : [...(prev[dateKey] || []), id]
+    }));
   };
 
-  const renderMedicationRow = (med, index) => (
-    <View key={med.id || index} style={styles.medRow}>
-      <Text style={styles.medTime}>{med.scheduledTime || '9:00 AM'}</Text>
-      <View style={styles.medInfo}>
-        <Text style={styles.medName}>{med.medicationName || 'Metformin'} {med.dosage || '500 mg'}</Text>
-        <Text style={styles.medDosage}>{med.instructions || '30 Ayle'}</Text>
-      </View>
-      {med.status === 'TAKEN' ? (
-        <View style={styles.statusBadge}>
-          <Text style={styles.statusCheck}>✓</Text>
-          <Text style={styles.statusText}>Today</Text>
-        </View>
-      ) : (
-        <View style={styles.pendingBadge}>
-          <Text style={styles.pendingIcon}>⏱</Text>
-          <Text style={styles.pendingText}>Take</Text>
-        </View>
-      )}
-      <View style={styles.medIcon}>
-        <Text style={styles.medIconText}>💧</Text>
-      </View>
-      <View style={styles.medDetails}>
-        <Text style={styles.medDetailName}>{med.medicationName || 'Amitrituline'} {med.dosage || '25 mg'}</Text>
-        <Text style={styles.medDetailStatus}>1 {med.status === 'TAKEN' ? 'Taken' : 'Pending'}, {med.dosage || '500mg'}</Text>
-      </View>
-      {med.status === 'TAKEN' ? (
-        <View style={styles.takenBtn}>
-          <Text style={styles.takenBtnText}>Take</Text>
-        </View>
-      ) : (
-        <TouchableOpacity style={styles.takeBtn} onPress={() => handleTake(med)}>
-          <Text style={styles.takeBtnText}>Take</Text>
-        </TouchableOpacity>
-      )}
-    </View>
-  );
+  const isSameDay = (d1, d2) => 
+    d1.getDate() === d2.getDate() && d1.getMonth() === d2.getMonth() && d1.getFullYear() === d2.getFullYear();
 
-  const renderSection = (title, meds) => {
-    if (meds.length === 0) return null;
-    return (
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{title}</Text>
-        <View style={styles.sectionContent}>
-          {meds.map((med, index) => renderMedicationRow(med, index))}
-        </View>
-      </View>
-    );
-  };
+  const dosesForToday = completedDoses[dateKey] || [];
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Top Navigation */}
-      <View style={styles.topNav}>
-        <View style={styles.navLeft}>
-          <ECGLogo size={32} />
-          <Text style={styles.navTitle}>MedLink</Text>
-          <Text style={styles.pageTitle}>Medication Schedule</Text>
+      <View style={styles.headerContainer}>
+        <View style={styles.topHeader}>
+          <Text style={styles.headerTitle}>Daily Schedule</Text>
+          <View style={styles.progressBadge}>
+            <Text style={styles.progressText}>{dosesForToday.length}/{currentSchedule.length}</Text>
+          </View>
         </View>
-        <View style={styles.navRight}>
-          <TouchableOpacity onPress={() => navigation.navigate('Dashboard')}>
-            <Text style={styles.navItemText}>Dashboard</Text>
-          </TouchableOpacity>
-          <TouchableOpacity>
-            <Text style={[styles.navItemText, styles.navActive]}>Schedule</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.navItemWithBadge} onPress={() => navigation.navigate('History')}>
-            <Text style={styles.navItemText}>History</Text>
-            {pendingCount > 0 && (
-              <View style={styles.navBadge}>
-                <Text style={styles.navBadgeText}>{pendingCount}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.avatarBtn}>
-            <View style={styles.navAvatar}>
-              <Text style={styles.navAvatarText}>
-                {user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?'}
-              </Text>
-            </View>
-          </TouchableOpacity>
-        </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dateStrip}>
+          {dates.map((date, index) => {
+            const active = isSameDay(date, selectedDate);
+            const isToday = isSameDay(date, new Date());
+            return (
+              <TouchableOpacity key={index} onPress={() => setSelectedDate(date)} style={[styles.dateCard, active && styles.activeDateCard]}>
+                <Text style={[styles.dateDay, active && styles.activeDateText]}>{date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}</Text>
+                <Text style={[styles.dateNumber, active && styles.activeDateText]}>{date.getDate()}</Text>
+                {isToday && !active && <View style={styles.todayDot} />}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
-        {/* Page Title */}
-        <Text style={styles.pageHeader}>Medication Schedule</Text>
-
-        {/* Week Strip */}
-        <View style={styles.weekCard}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.weekStrip}
-          >
-            {getDayDates().map((date, index) => {
-              const dayName = date.toLocaleDateString('en', { weekday: 'short' }).toUpperCase().slice(0, 3);
-              const isSelectedDate = isSelected(date);
-              return (
-                <TouchableOpacity
-                  key={index}
-                  style={[
-                    styles.dayItem,
-                    isSelectedDate && styles.dayActive,
-                  ]}
-                  onPress={() => setSelectedDate(date)}
-                  activeOpacity={0.85}
-                >
-                  <Text
-                    style={[
-                      styles.dayName,
-                      isSelectedDate && styles.dayTextActive,
-                    ]}
-                  >
-                    {dayName}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.dayNum,
-                      isSelectedDate && styles.dayTextActive,
-                    ]}
-                  >
-                    {date.getDate()}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
-
-        {/* Selected Date */}
-        <Text style={styles.selectedDate}>{formatDateHeader(selectedDate)}</Text>
-
-        {/* Medication Sections */}
-        <View style={styles.sectionsContainer}>
-          {renderSection('Morning', groupedMeds.morning)}
-          {renderSection('Afternoon', groupedMeds.afternoon)}
-          {renderSection('Evening', groupedMeds.evening)}
-          
-          {/* As Needed Section */}
-          <TouchableOpacity style={styles.asNeededRow}>
-            <Text style={styles.asNeededText}>As Needed</Text>
-            <Text style={styles.chevron}>›</Text>
+      <View style={styles.filterBar}>
+        {['All', 'Pending', 'Completed'].map((tab) => (
+          <TouchableOpacity key={tab} onPress={() => setFilter(tab)} style={[styles.filterTab, filter === tab && styles.activeFilterTab]}>
+            <Text style={[styles.filterTabText, filter === tab && styles.activeFilterTabText]}>{tab}</Text>
           </TouchableOpacity>
-        </View>
-      </ScrollView>
+        ))}
+      </View>
 
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        {currentSchedule
+          .filter(item => {
+            if (filter === 'Pending') return !dosesForToday.includes(item.id);
+            if (filter === 'Completed') return dosesForToday.includes(item.id);
+            return true;
+          })
+          .map((item, index) => {
+            const isCompleted = dosesForToday.includes(item.id);
+            return (
+              <View key={item.id} style={styles.timelineRow}>
+                <View style={styles.timelineLeft}>
+                  <Text style={styles.timeLabel}>{item.time}</Text>
+                  {index !== currentSchedule.length - 1 && <View style={styles.timelineLine} />}
+                </View>
+                <TouchableOpacity onPress={() => toggleDose(item.id)} style={[styles.card, isCompleted ? styles.cardCompleted : { borderLeftColor: item.color }]}>
+                  <View style={styles.cardInfo}>
+                    <Text style={[styles.medName, isCompleted && styles.textCompleted]}>{item.name}</Text>
+                    <Text style={[styles.medDose, isCompleted && styles.textCompleted]}>{item.dose}</Text>
+                    <Text style={styles.medInstructions}>{item.instructions}</Text>
+                  </View>
+                  <View style={[styles.statusIcon, isCompleted && styles.statusIconDone]}>
+                    {isCompleted && <Ionicons name="checkmark" size={18} color="#FFF" />}
+                  </View>
+                </TouchableOpacity>
+              </View>
+            );
+          })}
+      </ScrollView>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: '#f0f4f4',
-  },
-  scroll: { 
-    flex: 1,
-  },
-  scrollContent: { 
-    padding: SPACING.lg,
-    paddingBottom: SPACING.xxxl,
-  },
-
-  // Top Navigation
-  topNav: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
-    backgroundColor: '#0f766e',
-  },
-  navLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  navTitle: {
-    color: COLORS.white,
-    fontSize: 18,
-    fontWeight: '700',
-    marginLeft: SPACING.sm,
-    marginRight: SPACING.md,
-  },
-  pageTitle: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  navRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.lg,
-  },
-  navItemText: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  navActive: {
-    color: COLORS.white,
-    fontWeight: '600',
-  },
-  navItemWithBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  navBadge: {
-    backgroundColor: '#ef4444',
-    borderRadius: 10,
-    minWidth: 18,
-    height: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 4,
-  },
-  navBadgeText: {
-    color: COLORS.white,
-    fontSize: 10,
-    fontWeight: '700',
-    paddingHorizontal: 4,
-  },
-  avatarBtn: {
-    marginLeft: SPACING.sm,
-  },
-  navAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.25)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  navAvatarText: {
-    color: COLORS.white,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-
-  // Page Header
-  pageHeader: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-    marginBottom: SPACING.lg,
-  },
-
-  // Week Strip
-  weekCard: {
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    paddingVertical: SPACING.md,
-    paddingHorizontal: SPACING.sm,
-    marginBottom: SPACING.lg,
-    ...SHADOW.card,
-  },
-  weekStrip: { 
-    paddingHorizontal: SPACING.xs,
-  },
-  dayItem: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 56,
-    height: 72,
-    borderRadius: 12,
-    marginHorizontal: 4,
-  },
-  dayActive: { 
-    backgroundColor: '#0f766e',
-  },
-  dayName: {
-    fontSize: 11,
-    color: COLORS.textSecondary,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  dayNum: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-  },
-  dayTextActive: { 
-    color: COLORS.white,
-  },
-
-  // Selected Date
-  selectedDate: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.textSecondary,
-    marginBottom: SPACING.lg,
-  },
-
-  // Sections
-  sectionsContainer: {
-    backgroundColor: COLORS.white,
-    borderRadius: 20,
-    overflow: 'hidden',
-    ...SHADOW.card,
-  },
-  section: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-    padding: SPACING.lg,
-    paddingBottom: SPACING.md,
-  },
-  sectionContent: {
-    paddingHorizontal: SPACING.lg,
-    paddingBottom: SPACING.lg,
-  },
-
-  // Medication Row
-  medRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: SPACING.md,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  medTime: {
-    width: 70,
-    fontSize: 14,
-    fontWeight: '500',
-    color: COLORS.textSecondary,
-  },
-  medInfo: {
-    flex: 1,
-    minWidth: 120,
-  },
-  medName: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-    marginBottom: 2,
-  },
-  medDosage: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f0fdf4',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginRight: SPACING.md,
-  },
-  statusCheck: {
-    color: '#16a34a',
-    fontSize: 12,
-    marginRight: 4,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#16a34a',
-  },
-  pendingBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fef3c7',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginRight: SPACING.md,
-  },
-  pendingIcon: {
-    fontSize: 12,
-    marginRight: 4,
-  },
-  pendingText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#d97706',
-  },
-  medIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#e0f2fe',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: SPACING.sm,
-  },
-  medIconText: {
-    fontSize: 16,
-  },
-  medDetails: {
-    flex: 1,
-  },
-  medDetailName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-  },
-  medDetailStatus: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-  },
-  takeBtn: {
-    backgroundColor: '#0f766e',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    minWidth: 70,
-    alignItems: 'center',
-  },
-  takeBtnText: {
-    color: COLORS.white,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  takenBtn: {
-    backgroundColor: '#fbbf24',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    minWidth: 70,
-    alignItems: 'center',
-  },
-  takenBtnText: {
-    color: '#92400e',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-
-  // As Needed
-  asNeededRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: SPACING.lg,
-  },
-  asNeededText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: COLORS.textSecondary,
-  },
-  chevron: {
-    fontSize: 20,
-    color: COLORS.textLight,
-  },
-
-  // Bottom Navigation
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
+  headerContainer: { backgroundColor: '#FFF', paddingVertical: 20, borderBottomLeftRadius: 30, borderBottomRightRadius: 30, elevation: 5 },
+  topHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 25 },
+  headerTitle: { fontSize: 24, fontWeight: '800', color: '#1E293B' },
+  progressBadge: { backgroundColor: '#E0F2F1', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
+  progressText: { color: '#00796B', fontWeight: 'bold' },
+  dateStrip: { marginTop: 15, paddingHorizontal: 15 },
+  dateCard: { width: 55, height: 75, justifyContent: 'center', alignItems: 'center', marginHorizontal: 5, borderRadius: 12, backgroundColor: '#F1F5F9' },
+  activeDateCard: { backgroundColor: COLORS.primary || '#0D9488' },
+  dateDay: { fontSize: 10, fontWeight: 'bold', color: '#64748B' },
+  dateNumber: { fontSize: 18, fontWeight: 'bold', color: '#1E293B' },
+  activeDateText: { color: '#FFF' },
+  todayDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#0D9488', marginTop: 4 },
+  filterBar: { flexDirection: 'row', paddingHorizontal: 20, marginTop: 20 },
+  filterTab: { paddingVertical: 6, paddingHorizontal: 14, borderRadius: 15, marginRight: 8, backgroundColor: '#E2E8F0' },
+  activeFilterTab: { backgroundColor: '#334155' },
+  filterTabText: { color: '#64748B', fontWeight: '600', fontSize: 12 },
+  activeFilterTabText: { color: '#FFF' },
+  scrollContent: { padding: 20 },
+  timelineRow: { flexDirection: 'row', minHeight: 100 },
+  timelineLeft: { width: 70, alignItems: 'center' },
+  timeLabel: { fontSize: 11, fontWeight: '800', color: '#94A3B8' },
+  timelineLine: { width: 2, flex: 1, backgroundColor: '#E2E8F0', marginVertical: 5 },
+  card: { flex: 1, backgroundColor: '#FFF', borderRadius: 15, padding: 15, marginBottom: 15, flexDirection: 'row', alignItems: 'center', borderLeftWidth: 5, elevation: 2 },
+  cardCompleted: { opacity: 0.6, backgroundColor: '#F1F5F9', borderLeftColor: '#CBD5E1' },
+  cardInfo: { flex: 1 },
+  medName: { fontSize: 16, fontWeight: '700', color: '#1E293B' },
+  medDose: { fontSize: 13, color: '#64748B' },
+  medInstructions: { fontSize: 11, color: '#94A3B8', marginTop: 2 },
+  textCompleted: { textDecorationLine: 'line-through' },
+  statusIcon: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: '#CBD5E1', justifyContent: 'center', alignItems: 'center' },
+  statusIconDone: { backgroundColor: '#10B981', borderColor: '#10B981' }
 });
 
 export default MedicationSchedule;
