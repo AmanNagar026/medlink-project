@@ -13,6 +13,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { useAuth } from "../../context/AuthContext";
 import { validateEmail } from "../../utils/helpers";
+import ECGLogo from "../../components/ECGLogo";
 
 const LoginScreen = ({ navigation }) => {
   const { login } = useAuth();
@@ -57,7 +58,7 @@ const LoginScreen = ({ navigation }) => {
         >
           <View style={styles.card}>
             <View style={styles.logoCircle}>
-              <Text style={{ color: "#fff", fontSize: 24 }}>∿</Text>
+              <ECGLogo size={60} />
             </View>
 
             <Text style={styles.title}>MedLink</Text>

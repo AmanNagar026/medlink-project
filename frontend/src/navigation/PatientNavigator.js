@@ -6,6 +6,9 @@ import PatientDashboard from '../screens/patient/PatientDashboard';
 import MedicationSchedule from '../screens/patient/MedicationSchedule';
 import IntakeLog from '../screens/patient/IntakeLog';
 import ReminderScreen from '../screens/patient/ReminderScreen';
+import VitalsScreen from '../screens/patient/VitalsScreen';
+import ReportsScreen from '../screens/patient/ReportsScreen';
+import RemindersScreen from '../screens/patient/RemindersScreen';
 import COLORS from '../utils/colors';
 
 const Tab = createBottomTabNavigator();
@@ -14,6 +17,9 @@ const Stack = createNativeStackNavigator();
 const DashboardStack = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
     <Stack.Screen name="PatientDashboard" component={PatientDashboard} />
+    <Stack.Screen name="Vitals" component={VitalsScreen} />
+    <Stack.Screen name="Reports" component={ReportsScreen} />
+    <Stack.Screen name="Reminders" component={RemindersScreen} />
   </Stack.Navigator>
 );
 
@@ -44,7 +50,9 @@ const PatientNavigator = () => (
         const icons = {
           Dashboard: '🏠',
           Schedule: '📅',
-          History: '📋',
+          Vitals: '🩺',
+          History: '📊',
+          Reports: '📈',
           Reminders: '🔔',
         };
         return (
@@ -62,8 +70,9 @@ const PatientNavigator = () => (
   >
     <Tab.Screen name="Dashboard" component={DashboardStack} />
     <Tab.Screen name="Schedule" component={MedicationSchedule} />
-    <Tab.Screen name="History" component={IntakeLog} />
-    <Tab.Screen name="Reminders" component={ReminderScreen} />
+    <Tab.Screen name="Vitals" component={VitalsScreen} />
+    <Tab.Screen name="History" component={ReportsScreen} />
+    <Tab.Screen name="Reminders" component={RemindersScreen} />
   </Tab.Navigator>
 );
 

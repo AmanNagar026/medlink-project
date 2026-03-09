@@ -1,6 +1,7 @@
 package com.medlink.tracker.controller;
 
 import com.medlink.tracker.model.Doctor;
+import com.medlink.tracker.model.Patient;
 import com.medlink.tracker.service.DoctorService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -47,5 +48,41 @@ public class DoctorController {
                                            @RequestBody Map<String, String> body) {
         doctorService.addPatient(doctorId, body.get("patientId"));
         return ResponseEntity.ok().build();
+    }
+    
+    /**
+     * Get comprehensive dashboard statistics for a doctor
+     * @param doctorId the doctor's ID
+     * @return Dashboard statistics including patient and prescription counts
+     */
+    @GetMapping("/{doctorId}/dashboard/stats")
+    public ResponseEntity<Map<String, Object>> getDashboardStats(@PathVariable String doctorId) {
+        Map<String, Object> stats = doctorService.getDoctorDashboardStats(doctorId);
+        return ResponseEntity.ok(stats);
+    }
+    
+    /**
+     * Get latest patients assigned to a doctor for insights section
+     * @param doctorId the doctor's ID
+     * @param limit number of patients to return (optional, default 10)
+     * @return List of recent patients
+     */
+    @GetMapping("/{doctorId}/patients/latest")
+    public ResponseEntity<List<Patient>> getLatestPatients(
+            @PathVariable String doctorId,
+            @RequestParam(defaultValue = "10") int limit) {
+        List<Patient> patients = doctorService.getLatestPatientsForDoctor(doctorId, limit);
+        return ResponseEntity.ok(patients);
+    }
+    
+    /**
+     * Get real-time dashboard data including stats and latest patients
+     * @param doctorId the doctor's ID
+     * @return Combined dashboard data with statistics and patient information
+     */
+    @GetMapping("/{doctorId}/dashboard/realtime")
+    public ResponseEntity<Map<String, Object>> getRealTimeDashboard(@PathVariable String doctorId) {
+        Map<String, Object> data = doctorService.getRealTimeDashboardData(doctorId);
+        return ResponseEntity.ok(data);
     }
 }

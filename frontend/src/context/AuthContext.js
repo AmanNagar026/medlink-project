@@ -39,7 +39,18 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        login,
+        register,
+        logout,
+        // Allow profile screens to update basic user fields (name, email, etc.)
+        updateUser: (updates) =>
+          setUser((prev) => (prev ? { ...prev, ...updates } : prev)),
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

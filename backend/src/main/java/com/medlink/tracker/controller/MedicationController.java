@@ -2,6 +2,8 @@ package com.medlink.tracker.controller;
 
 import com.medlink.tracker.model.IntakeLog;
 import com.medlink.tracker.model.Medication;
+import com.medlink.tracker.model.MedicationSchedule;
+import com.medlink.tracker.service.MedicationScheduleService;
 import com.medlink.tracker.service.MedicationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -19,6 +21,9 @@ public class MedicationController {
 
     @Autowired
     private MedicationService medicationService;
+
+    @Autowired
+    private MedicationScheduleService scheduleService;
 
     @PostMapping
     public ResponseEntity<Medication> create(@RequestBody Medication medication) {
@@ -72,5 +77,33 @@ public class MedicationController {
     public ResponseEntity<IntakeLog> updateStatus(@PathVariable String logId,
                                                    @RequestBody Map<String, String> body) {
         return ResponseEntity.ok(medicationService.updateIntakeStatus(logId, body.get("status")));
+    }
+
+    // Medication Schedule endpoints
+    @PostMapping("/schedule")
+    public ResponseEntity<MedicationSchedule> createSchedule(@RequestBody MedicationSchedule schedule) {
+        return ResponseEntity.ok(scheduleService.create(schedule));
+    }
+
+    @GetMapping("/schedule/{patientId}")
+    public ResponseEntity<List<MedicationSchedule>> getScheduleByPatient(@PathVariable String patientId) {
+        return ResponseEntity.ok(scheduleService.getByPatientId(patientId));
+    }
+
+    @GetMapping("/schedule/{patientId}/current")
+    public ResponseEntity<List<MedicationSchedule>> getCurrentSchedule(@PathVariable String patientId) {
+        return ResponseEntity.ok(scheduleService.getCurrentSchedules(patientId));
+    }
+
+    @PutMapping("/schedule/{id}")
+    public ResponseEntity<MedicationSchedule> updateSchedule(@PathVariable String id, 
+                                                              @RequestBody MedicationSchedule schedule) {
+        return ResponseEntity.ok(scheduleService.update(id, schedule));
+    }
+
+    @DeleteMapping("/schedule/{id}")
+    public ResponseEntity<Void> deleteSchedule(@PathVariable String id) {
+        scheduleService.delete(id);
+        return ResponseEntity.noContent().build();
     }
 }

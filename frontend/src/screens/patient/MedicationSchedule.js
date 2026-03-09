@@ -1,261 +1,160 @@
-import React, { useState, useCallback } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Alert,
-} from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
-import { useAuth } from '../../context/AuthContext';
-import Header from '../../components/Header';
-import MedicationCard from '../../components/MedicationCard';
-import medicationService from '../../services/medicationService';
+import React, { useState, useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import COLORS from '../../utils/colors';
-import { formatDate } from '../../utils/helpers';
-import { SPACING, TYPOGRAPHY, RADIUS, SHADOW } from '../../utils/theme';
 
-const MedicationSchedule = ({ navigation }) => {
-  const { user } = useAuth();
-  const [intakes, setIntakes] = useState([]);
+const MedicationSchedule = () => {
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [completedDoses, setCompletedDoses] = useState({}); // Changed to object to track doses per date
+  const [filter, setFilter] = useState('All');
 
-  const loadIntakes = async (date) => {
-    if (!user?.profileId) return;
-    try {
-      const dateStr = date.toISOString().split('T')[0];
-      const data = await medicationService.getIntakesByDate(
-        user.profileId,
-        dateStr
-      );
-      setIntakes(data);
-    } catch (err) {
-      console.error('Load intakes error:', err);
-    }
-  };
-
-  useFocusEffect(useCallback(() => {
-    loadIntakes(selectedDate);
-  }, [selectedDate]));
-
-  const getDayDates = () => {
-    const dates = [];
-    for (let i = -2; i <= 4; i++) {
+  // 1. Generate 14 days for the scroller
+  const dates = useMemo(() => {
+    return Array.from({ length: 14 }, (_, i) => {
       const d = new Date();
-      d.setDate(d.getDate() + i);
-      dates.push(d);
+      d.setDate(d.getDate() - 3 + i);
+      return d;
+    });
+  }, []);
+
+  // 2. Logic to change data based on selected date
+  // In your real app, this is where you fetch from Spring Boot: 
+  // axios.get(`/api/medications?date=${selectedDate.toISOString()}`)
+  const getScheduleForDate = (date) => {
+    const day = date.getDay();
+    const dateKey = date.toDateString();
+
+    // Example: Different meds for weekends vs weekdays
+    if (day === 0 || day === 6) {
+      return [
+        { id: `${dateKey}-1`, time: '09:00 AM', name: 'Vitamin D3', dose: '1000 IU', instructions: 'Weekend Supplement', color: '#F1C40F' },
+        { id: `${dateKey}-2`, time: '10:00 PM', name: 'Magnesium', dose: '200mg', instructions: 'Before sleep', color: '#9B59B6' },
+      ];
     }
-    return dates;
+    
+    return [
+      { id: `${dateKey}-1`, time: '08:00 AM', name: 'Atorvastatin', dose: '20mg', instructions: 'After breakfast', color: '#4ECDC4' },
+      { id: `${dateKey}-2`, time: '01:00 PM', name: 'Metformin', dose: '500mg', instructions: 'With lunch', color: '#FF6B6B' },
+      { id: `${dateKey}-3`, time: '09:00 PM', name: 'Lisinopril', dose: '10mg', instructions: 'Before bed', color: '#45B7D1' },
+    ];
   };
 
-  const isSelected = (date) =>
-    date.toDateString() === selectedDate.toDateString();
+  const currentSchedule = getScheduleForDate(selectedDate);
+  const dateKey = selectedDate.toDateString();
 
-  const isToday = (date) =>
-    date.toDateString() === new Date().toDateString();
-
-  const handleTake = async (med) => {
-    try {
-      await medicationService.updateIntakeStatus(med.id, 'TAKEN');
-      loadIntakes(selectedDate);
-    } catch (err) {
-      Alert.alert('Error', 'Could not update medication status');
-    }
+  const toggleDose = (id) => {
+    setCompletedDoses(prev => ({
+      ...prev,
+      [dateKey]: prev[dateKey]?.includes(id) 
+        ? prev[dateKey].filter(itemId => itemId !== id) 
+        : [...(prev[dateKey] || []), id]
+    }));
   };
 
-  const handleSkip = async (med) => {
-    Alert.alert('Skip Medication', 'Are you sure you want to skip this dose?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Skip',
-        onPress: async () => {
-          try {
-            await medicationService.updateIntakeStatus(med.id, 'SKIPPED');
-            loadIntakes(selectedDate);
-          } catch (err) {
-            Alert.alert('Error', 'Could not update status');
-          }
-        },
-      },
-    ]);
-  };
+  const isSameDay = (d1, d2) => 
+    d1.getDate() === d2.getDate() && d1.getMonth() === d2.getMonth() && d1.getFullYear() === d2.getFullYear();
 
-  const taken = intakes.filter((i) => i.status === 'TAKEN').length;
-  const pending = intakes.filter((i) => i.status === 'PENDING').length;
+  const dosesForToday = completedDoses[dateKey] || [];
 
   return (
-    <View style={styles.container}>
-      <Header
-        title="Medication Schedule"
-        subtitle=""
-        role="PATIENT"
-        activeTab="Schedule"
-        navigation={navigation}
-        user={user}
-      />
+    <SafeAreaView style={styles.container}>
+      <View style={styles.headerContainer}>
+        <View style={styles.topHeader}>
+          <Text style={styles.headerTitle}>Daily Schedule</Text>
+          <View style={styles.progressBadge}>
+            <Text style={styles.progressText}>{dosesForToday.length}/{currentSchedule.length}</Text>
+          </View>
+        </View>
 
-      {/* Week Strip - Card */}
-      <View style={styles.calendarCard}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.weekStrip}
-        >
-          {getDayDates().map((date, index) => (
-            <TouchableOpacity
-              key={index}
-              style={[
-                styles.dayItem,
-                isSelected(date) && styles.dayActive,
-              ]}
-              onPress={() => setSelectedDate(date)}
-              activeOpacity={0.85}
-            >
-              <Text
-                style={[
-                  styles.dayName,
-                  isSelected(date) && styles.dayTextActive,
-                ]}
-              >
-                {date.toLocaleDateString('en', { weekday: 'short' })}
-              </Text>
-              <Text
-                style={[
-                  styles.dayNum,
-                  isSelected(date) && styles.dayTextActive,
-                ]}
-              >
-                {date.getDate()}
-              </Text>
-              {isToday(date) && !isSelected(date) && (
-                <View style={styles.todayDot} />
-              )}
-            </TouchableOpacity>
-          ))}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dateStrip}>
+          {dates.map((date, index) => {
+            const active = isSameDay(date, selectedDate);
+            const isToday = isSameDay(date, new Date());
+            return (
+              <TouchableOpacity key={index} onPress={() => setSelectedDate(date)} style={[styles.dateCard, active && styles.activeDateCard]}>
+                <Text style={[styles.dateDay, active && styles.activeDateText]}>{date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}</Text>
+                <Text style={[styles.dateNumber, active && styles.activeDateText]}>{date.getDate()}</Text>
+                {isToday && !active && <View style={styles.todayDot} />}
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
       </View>
 
-      {/* Date & summary */}
-      <View style={styles.dateRow}>
-        <Text style={styles.selectedDate}>
-          {formatDate(selectedDate.toISOString())}
-        </Text>
-        <Text style={styles.summary}>
-          {taken} taken · {pending} pending
-        </Text>
+      <View style={styles.filterBar}>
+        {['All', 'Pending', 'Completed'].map((tab) => (
+          <TouchableOpacity key={tab} onPress={() => setFilter(tab)} style={[styles.filterTab, filter === tab && styles.activeFilterTab]}>
+            <Text style={[styles.filterTabText, filter === tab && styles.activeFilterTabText]}>{tab}</Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
-      {/* Intake List */}
-      <ScrollView
-        style={styles.scroll}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
-        {intakes.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyIcon}>😴</Text>
-            <Text style={styles.emptyTitle}>No medications scheduled</Text>
-            <Text style={styles.emptyText}>
-              You're all clear for this day!
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.list}>
-            {intakes.map((intake) => (
-              <MedicationCard
-                key={intake.id}
-                medication={intake}
-                onTake={handleTake}
-                onSkip={handleSkip}
-                showActions={
-                  selectedDate.toDateString() === new Date().toDateString()
-                }
-              />
-            ))}
-          </View>
-        )}
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        {currentSchedule
+          .filter(item => {
+            if (filter === 'Pending') return !dosesForToday.includes(item.id);
+            if (filter === 'Completed') return dosesForToday.includes(item.id);
+            return true;
+          })
+          .map((item, index) => {
+            const isCompleted = dosesForToday.includes(item.id);
+            return (
+              <View key={item.id} style={styles.timelineRow}>
+                <View style={styles.timelineLeft}>
+                  <Text style={styles.timeLabel}>{item.time}</Text>
+                  {index !== currentSchedule.length - 1 && <View style={styles.timelineLine} />}
+                </View>
+                <TouchableOpacity onPress={() => toggleDose(item.id)} style={[styles.card, isCompleted ? styles.cardCompleted : { borderLeftColor: item.color }]}>
+                  <View style={styles.cardInfo}>
+                    <Text style={[styles.medName, isCompleted && styles.textCompleted]}>{item.name}</Text>
+                    <Text style={[styles.medDose, isCompleted && styles.textCompleted]}>{item.dose}</Text>
+                    <Text style={styles.medInstructions}>{item.instructions}</Text>
+                  </View>
+                  <View style={[styles.statusIcon, isCompleted && styles.statusIconDone]}>
+                    {isCompleted && <Ionicons name="checkmark" size={18} color="#FFF" />}
+                  </View>
+                </TouchableOpacity>
+              </View>
+            );
+          })}
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
-  calendarCard: {
-    backgroundColor: COLORS.card,
-    marginHorizontal: SPACING.lg,
-    marginTop: SPACING.lg,
-    borderRadius: RADIUS.lg,
-    paddingVertical: SPACING.md,
-    paddingHorizontal: SPACING.sm,
-    ...SHADOW.card,
-  },
-  weekStrip: { paddingHorizontal: SPACING.xs },
-  dayItem: {
-    alignItems: 'center',
-    width: 52,
-    paddingVertical: SPACING.sm,
-    borderRadius: RADIUS.md,
-    marginHorizontal: SPACING.xs,
-  },
-  dayActive: { backgroundColor: COLORS.primary },
-  dayName: {
-    fontSize: 11,
-    color: COLORS.textSecondary,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  dayNum: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-    marginTop: 2,
-  },
-  dayTextActive: { color: COLORS.white },
-  todayDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: COLORS.accent,
-    marginTop: SPACING.xs,
-  },
-  dateRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.lg,
-    paddingBottom: SPACING.sm,
-  },
-  selectedDate: {
-    ...TYPOGRAPHY.h4,
-    color: COLORS.textPrimary,
-  },
-  summary: {
-    ...TYPOGRAPHY.bodySmall,
-    color: COLORS.textSecondary,
-  },
-  scroll: { flex: 1 },
-  scrollContent: { padding: SPACING.lg, paddingBottom: SPACING.xxxl },
-  list: {},
-  emptyCard: {
-    backgroundColor: COLORS.card,
-    borderRadius: RADIUS.lg,
-    alignItems: 'center',
-    padding: SPACING.xxxl,
-    ...SHADOW.card,
-  },
-  emptyIcon: { fontSize: 56, marginBottom: SPACING.md },
-  emptyTitle: {
-    ...TYPOGRAPHY.h3,
-    color: COLORS.textPrimary,
-  },
-  emptyText: {
-    ...TYPOGRAPHY.bodySmall,
-    color: COLORS.textSecondary,
-    marginTop: SPACING.sm,
-  },
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
+  headerContainer: { backgroundColor: '#FFF', paddingVertical: 20, borderBottomLeftRadius: 30, borderBottomRightRadius: 30, elevation: 5 },
+  topHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 25 },
+  headerTitle: { fontSize: 24, fontWeight: '800', color: '#1E293B' },
+  progressBadge: { backgroundColor: '#E0F2F1', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
+  progressText: { color: '#00796B', fontWeight: 'bold' },
+  dateStrip: { marginTop: 15, paddingHorizontal: 15 },
+  dateCard: { width: 55, height: 75, justifyContent: 'center', alignItems: 'center', marginHorizontal: 5, borderRadius: 12, backgroundColor: '#F1F5F9' },
+  activeDateCard: { backgroundColor: COLORS.primary || '#0D9488' },
+  dateDay: { fontSize: 10, fontWeight: 'bold', color: '#64748B' },
+  dateNumber: { fontSize: 18, fontWeight: 'bold', color: '#1E293B' },
+  activeDateText: { color: '#FFF' },
+  todayDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#0D9488', marginTop: 4 },
+  filterBar: { flexDirection: 'row', paddingHorizontal: 20, marginTop: 20 },
+  filterTab: { paddingVertical: 6, paddingHorizontal: 14, borderRadius: 15, marginRight: 8, backgroundColor: '#E2E8F0' },
+  activeFilterTab: { backgroundColor: '#334155' },
+  filterTabText: { color: '#64748B', fontWeight: '600', fontSize: 12 },
+  activeFilterTabText: { color: '#FFF' },
+  scrollContent: { padding: 20 },
+  timelineRow: { flexDirection: 'row', minHeight: 100 },
+  timelineLeft: { width: 70, alignItems: 'center' },
+  timeLabel: { fontSize: 11, fontWeight: '800', color: '#94A3B8' },
+  timelineLine: { width: 2, flex: 1, backgroundColor: '#E2E8F0', marginVertical: 5 },
+  card: { flex: 1, backgroundColor: '#FFF', borderRadius: 15, padding: 15, marginBottom: 15, flexDirection: 'row', alignItems: 'center', borderLeftWidth: 5, elevation: 2 },
+  cardCompleted: { opacity: 0.6, backgroundColor: '#F1F5F9', borderLeftColor: '#CBD5E1' },
+  cardInfo: { flex: 1 },
+  medName: { fontSize: 16, fontWeight: '700', color: '#1E293B' },
+  medDose: { fontSize: 13, color: '#64748B' },
+  medInstructions: { fontSize: 11, color: '#94A3B8', marginTop: 2 },
+  textCompleted: { textDecorationLine: 'line-through' },
+  statusIcon: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: '#CBD5E1', justifyContent: 'center', alignItems: 'center' },
+  statusIconDone: { backgroundColor: '#10B981', borderColor: '#10B981' }
 });
 
 export default MedicationSchedule;

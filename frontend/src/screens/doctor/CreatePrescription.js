@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,22 +8,30 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
+  SafeAreaView,
+  TextInput,
+  Dimensions,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
-import Header from '../../components/Header';
-import InputField from '../../components/InputField';
-import CustomButton from '../../components/CustomButton';
+import ECGLogo from '../../components/ECGLogo';
 import prescriptionService from '../../services/prescriptionService';
 import COLORS from '../../utils/colors';
 import { FREQUENCY_OPTIONS } from '../../utils/constants';
 import { SPACING, TYPOGRAPHY, RADIUS, SHADOW } from '../../utils/theme';
 
+const { width } = Dimensions.get('window');
+const MAX_CONTAINER_WIDTH = 1100;
+
 const CreatePrescription = ({ navigation, route }) => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState({});
   const [form, setForm] = useState({
     patientId: route?.params?.patientId || '',
     patientName: route?.params?.patientName || '',
+    patientAge: '',
+    patientGender: '',
     diagnosis: '',
     notes: '',
     expiryDate: '',
@@ -33,12 +41,18 @@ const CreatePrescription = ({ navigation, route }) => {
       medicationName: '',
       dosage: '',
       frequency: 'ONCE_DAILY',
-      instructions: '',
-      durationDays: 7,
+      durationDays: '',
     },
   ]);
 
-  const set = (key, val) => setForm((prev) => ({ ...prev, [key]: val }));
+  const set = (key, val) => {
+    setForm((prev) => ({ ...prev, [key]: val }));
+    // Clear error when field is edited
+    if (errors[key]) {
+      setErrors((prev) => ({ ...prev, [key]: null }));
+    }
+  };
+
   const setMed = (index, key, val) => {
     setMedications((prev) =>
       prev.map((m, i) => (i === index ? { ...m, [key]: val } : m))
@@ -52,28 +66,44 @@ const CreatePrescription = ({ navigation, route }) => {
         medicationName: '',
         dosage: '',
         frequency: 'ONCE_DAILY',
-        instructions: '',
-        durationDays: 7,
+        durationDays: '',
       },
     ]);
   };
 
   const removeMedication = (index) => {
-    if (medications.length === 1) return;
+    if (medications.length === 1) {
+      setMedications([{
+        medicationName: '',
+        dosage: '',
+        frequency: 'ONCE_DAILY',
+        durationDays: '',
+      }]);
+      return;
+    }
     setMedications((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleSubmit = async () => {
+  const validateForm = () => {
+    const newErrors = {};
+    
     if (!form.patientId.trim()) {
-      Alert.alert('Error', 'Patient ID is required');
-      return;
+      newErrors.patientId = 'Patient ID is required';
     }
-    if (!form.diagnosis.trim()) {
-      Alert.alert('Error', 'Diagnosis is required');
-      return;
+    if (!form.patientName.trim()) {
+      newErrors.patientName = 'Patient Name is required';
     }
     if (medications.some((m) => !m.medicationName.trim())) {
-      Alert.alert('Error', 'All medications need a name');
+      newErrors.medications = 'All medications need a name';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async () => {
+    if (!validateForm()) {
+      Alert.alert('Validation Error', 'Please fill in all required fields');
       return;
     }
 
@@ -83,242 +113,558 @@ const CreatePrescription = ({ navigation, route }) => {
         doctorId: user.profileId,
         doctorName: user.name,
         ...form,
-        expiryDate: form.expiryDate || getDefaultExpiry(),
         medications,
       };
       await prescriptionService.create(prescription);
-      Alert.alert('Success', 'Prescription created!', [
-        { text: 'OK', onPress: () => navigation.goBack() },
-      ]);
+      
+      // Navigate to Dashboard with success message
+      navigation.navigate('DoctorDashboard', {
+        screen: 'DoctorDashboard',
+        params: { successMsg: `Prescription saved for ${form.patientName}!` }
+      });
     } catch (err) {
-      Alert.alert('Error', err.message);
+      Alert.alert('Error', err.message || 'Failed to create prescription');
     } finally {
       setLoading(false);
     }
   };
 
-  const getDefaultExpiry = () => {
-    const d = new Date();
-    d.setDate(d.getDate() + 30);
-    return d.toISOString().split('T')[0];
-  };
-
-  const showBack = navigation.canGoBack();
+  const doctorName = user?.name?.split(' ')[0] || 'Doctor';
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <View style={styles.container}>
-        <Header
-          title={showBack ? 'New Prescription' : 'New Prescription'}
-          subtitle={showBack ? undefined : 'Create a prescription for your patient'}
-          onBack={showBack ? () => navigation.goBack() : undefined}
-          role={!showBack ? 'DOCTOR' : undefined}
-          activeTab={!showBack ? 'Prescriptions' : undefined}
-          navigation={!showBack ? navigation : undefined}
-          user={!showBack ? user : undefined}
-        />
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <ECGLogo size={28} />
+          <Text style={styles.headerTitle}>MedLink</Text>
+        </View>
+        <View style={styles.headerRight}>
+          <View style={styles.headerAvatar}>
+            <Text style={styles.headerAvatarText}>{doctorName.charAt(0).toUpperCase()}</Text>
+          </View>
+        </View>
+      </View>
 
+      <KeyboardAvoidingView
+        style={styles.keyboardView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
         <ScrollView
           style={styles.scroll}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
         >
-          {/* Form Card */}
-          <View style={styles.formCard}>
-            {/* Patient Info */}
-            <Text style={styles.sectionTitle}>Patient Information</Text>
-            <InputField
-              label="Patient ID"
-              value={form.patientId}
-              onChangeText={(v) => set('patientId', v)}
-              placeholder="Enter patient ID"
-            />
-            <InputField
-              label="Patient Name"
-              value={form.patientName}
-              onChangeText={(v) => set('patientName', v)}
-              placeholder="Patient full name"
-            />
+          {/* Centered Container */}
+          <View style={styles.centeredContainer}>
+            {/* Breadcrumb */}
+            <View style={styles.breadcrumb}>
+              <TouchableOpacity onPress={() => navigation.navigate('Dashboard')}>
+                <Text style={styles.breadcrumbLink}>Dashboard</Text>
+              </TouchableOpacity>
+              <Text style={styles.breadcrumbSeparator}>›</Text>
+              <Text style={styles.breadcrumbActive}>New Prescription</Text>
+            </View>
 
-            {/* Diagnosis */}
-            <Text style={styles.sectionTitle}>Diagnosis & Notes</Text>
-            <InputField
-              label="Diagnosis"
-              value={form.diagnosis}
-              onChangeText={(v) => set('diagnosis', v)}
-              placeholder="e.g., Type 2 Diabetes, Hypertension"
-            />
-            <InputField
-              label="Doctor's Notes (Optional)"
-              value={form.notes}
-              onChangeText={(v) => set('notes', v)}
-              placeholder="Additional instructions..."
-              multiline
-              numberOfLines={3}
-            />
-            <InputField
-              label="Expiry Date (YYYY-MM-DD)"
-              value={form.expiryDate}
-              onChangeText={(v) => set('expiryDate', v)}
-              placeholder={getDefaultExpiry()}
-            />
+            {/* Page Title */}
+            <Text style={styles.pageTitle}>Create New Prescription</Text>
 
-            {/* Medications */}
-            <Text style={styles.sectionTitle}>Medications</Text>
-            {medications.map((med, index) => (
-              <View key={index} style={styles.medCard}>
-                <View style={styles.medHeader}>
-                  <Text style={styles.medNum}>Medication #{index + 1}</Text>
-                  {medications.length > 1 && (
-                    <TouchableOpacity onPress={() => removeMedication(index)}>
-                      <Text style={styles.removeBtn}>✕ Remove</Text>
-                    </TouchableOpacity>
-                  )}
+            {/* Section 1 – Patient Information */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Patient Information</Text>
+              
+              <View style={styles.twoColumnGrid}>
+                <View style={styles.formField}>
+                  <Text style={styles.fieldLabel}>Patient ID <Text style={styles.required}>*</Text></Text>
+                  <TextInput
+                    style={[styles.textInput, errors.patientId && styles.inputError]}
+                    value={form.patientId}
+                    onChangeText={(v) => set('patientId', v)}
+                    placeholder="Enter patient ID"
+                    placeholderTextColor="#cbd5e1"
+                  />
+                  {errors.patientId && <Text style={styles.errorText}>{errors.patientId}</Text>}
                 </View>
-                <InputField
-                  label="Medicine Name"
-                  value={med.medicationName}
-                  onChangeText={(v) => setMed(index, 'medicationName', v)}
-                  placeholder="e.g., Metformin"
-                />
-                <InputField
-                  label="Dosage"
-                  value={med.dosage}
-                  onChangeText={(v) => setMed(index, 'dosage', v)}
-                  placeholder="e.g., 500mg"
-                />
-                <Text style={styles.label}>Frequency</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.freqScroll}
-                >
-                  {FREQUENCY_OPTIONS.map((f) => (
-                    <TouchableOpacity
-                      key={f.value}
-                      style={[
-                        styles.freqChip,
-                        med.frequency === f.value && styles.freqActive,
-                      ]}
-                      onPress={() => setMed(index, 'frequency', f.value)}
-                      activeOpacity={0.85}
-                    >
-                      <Text
-                        style={[
-                          styles.freqText,
-                          med.frequency === f.value && styles.freqTextActive,
-                        ]}
-                      >
-                        {f.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-                <InputField
-                  label="Instructions"
-                  value={med.instructions}
-                  onChangeText={(v) => setMed(index, 'instructions', v)}
-                  placeholder="e.g., After meals"
-                />
-                <InputField
-                  label="Duration (Days)"
-                  value={String(med.durationDays)}
-                  onChangeText={(v) =>
-                    setMed(index, 'durationDays', parseInt(v) || 7)
-                  }
-                  keyboardType="numeric"
-                  placeholder="7"
+
+                <View style={styles.formField}>
+                  <Text style={styles.fieldLabel}>Patient Name <Text style={styles.required}>*</Text></Text>
+                  <TextInput
+                    style={[styles.textInput, errors.patientName && styles.inputError]}
+                    value={form.patientName}
+                    onChangeText={(v) => set('patientName', v)}
+                    placeholder="Enter patient name"
+                    placeholderTextColor="#cbd5e1"
+                  />
+                  {errors.patientName && <Text style={styles.errorText}>{errors.patientName}</Text>}
+                </View>
+
+                <View style={styles.formField}>
+                  <Text style={styles.fieldLabel}>Age</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={form.patientAge}
+                    onChangeText={(v) => set('patientAge', v)}
+                    placeholder="Enter age"
+                    placeholderTextColor="#cbd5e1"
+                    keyboardType="numeric"
+                  />
+                </View>
+
+                <View style={styles.formField}>
+                  <Text style={styles.fieldLabel}>Gender</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={form.patientGender}
+                    onChangeText={(v) => set('patientGender', v)}
+                    placeholder="e.g., Male"
+                    placeholderTextColor="#94a3b8"
+                  />
+                </View>
+              </View>
+            </View>
+
+            {/* Section 2 – Diagnosis & Notes */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Diagnosis & Notes</Text>
+              
+              <View style={styles.formField}>
+                <Text style={styles.fieldLabel}>Diagnosis</Text>
+                <TextInput
+                  style={[styles.textInput, styles.textArea]}
+                  value={form.diagnosis}
+                  onChangeText={(v) => set('diagnosis', v)}
+                  placeholder="Enter diagnosis details..."
+                  placeholderTextColor="#cbd5e1"
+                  multiline
+                  numberOfLines={3}
                 />
               </View>
-            ))}
-            <CustomButton
-              title="+ Add Another Medication"
-              variant="outline"
-              onPress={addMedication}
-            />
-          </View>
 
-          <View style={styles.submitSection}>
-            <CustomButton
-              title="Create Prescription"
-              onPress={handleSubmit}
-              loading={loading}
-            />
+              <View style={styles.twoColumnGrid}>
+                <View style={styles.formField}>
+                  <Text style={styles.fieldLabel}>Doctor Notes</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={form.notes}
+                    onChangeText={(v) => set('notes', v)}
+                    placeholder="e.g., After meals"
+                    placeholderTextColor="#cbd5e1"
+                  />
+                </View>
+
+                <View style={styles.formField}>
+                  <Text style={styles.fieldLabel}>Prescription Expiry Date (Optional)</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={form.expiryDate}
+                    onChangeText={(v) => set('expiryDate', v)}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor="#cbd5e1"
+                  />
+                </View>
+              </View>
+            </View>
+
+            {/* Section 3 – Medications */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Medications</Text>
+              {errors.medications && <Text style={styles.errorText}>{errors.medications}</Text>}
+              
+              {medications.map((med, index) => (
+                <View key={index} style={styles.medicationContainer}>
+                  <View style={styles.medicationRow}>
+                    <View style={styles.medField}>
+                      <Text style={styles.fieldLabel}>Medicine Name</Text>
+                      <TextInput
+                        style={styles.textInput}
+                        value={med.medicationName}
+                        onChangeText={(v) => setMed(index, 'medicationName', v)}
+                        placeholder="Select or type medicine"
+                        placeholderTextColor="#cbd5e1"
+                      />
+                    </View>
+
+                    <View style={[styles.medField, { flex: 0.6 }]}>
+                      <Text style={styles.fieldLabel}>Dosage</Text>
+                      <TextInput
+                        style={styles.textInput}
+                        value={med.dosage}
+                        onChangeText={(v) => setMed(index, 'dosage', v)}
+                        placeholder="e.g., 500mg"
+                        placeholderTextColor="#cbd5e1"
+                      />
+                    </View>
+
+                    <View style={[styles.medField, { flex: 0.5 }]}>
+                      <Text style={styles.fieldLabel}>Duration (days)</Text>
+                      <TextInput
+                        style={styles.textInput}
+                        value={med.durationDays ? String(med.durationDays) : ''}
+                        onChangeText={(v) => setMed(index, 'durationDays', parseInt(v) || 0)}
+                        placeholder="e.g., 7"
+                        placeholderTextColor="#94a3b8"
+                        keyboardType="numeric"
+                      />
+                    </View>
+
+                    <TouchableOpacity 
+                      style={styles.deleteBtn}
+                      onPress={() => removeMedication(index)}
+                    >
+                      <Text style={styles.deleteIcon}>🗑</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Frequency Pills for each medication */}
+                  <View style={styles.frequencySection}>
+                    <Text style={styles.fieldLabel}>Frequency</Text>
+                    <View style={styles.frequencyPills}>
+                      {FREQUENCY_OPTIONS.map((f) => (
+                        <TouchableOpacity
+                          key={f.value}
+                          style={[
+                            styles.freqPill,
+                            med.frequency === f.value && styles.freqPillActive,
+                          ]}
+                          onPress={() => setMed(index, 'frequency', f.value)}
+                        >
+                          <Text
+                            style={[
+                              styles.freqPillText,
+                              med.frequency === f.value && styles.freqPillTextActive,
+                            ]}
+                          >
+                            {f.label}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                </View>
+              ))}
+
+              <TouchableOpacity style={styles.addMedBtn} onPress={addMedication}>
+                <Text style={styles.addMedIcon}>+</Text>
+                <Text style={styles.addMedText}>Add Another Medicine</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Action Buttons */}
+            <View style={styles.actionButtons}>
+              <TouchableOpacity 
+                style={styles.cancelBtn}
+                onPress={() => navigation.goBack()}
+              >
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.saveBtn, loading && styles.saveBtnDisabled]}
+                onPress={handleSubmit}
+                disabled={loading}
+              >
+                <Text style={styles.saveBtnText}>
+                  {loading ? 'Saving...' : 'Save Prescription'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </ScrollView>
-      </View>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
-  scroll: { flex: 1 },
-  scrollContent: { padding: SPACING.lg, paddingBottom: SPACING.xxxl },
-  formCard: {
-    backgroundColor: COLORS.card,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.xl,
-    marginBottom: SPACING.xl,
-    ...SHADOW.card,
+  container: {
+    flex: 1,
+    backgroundColor: '#f0f4f4',
   },
-  sectionTitle: {
-    ...TYPOGRAPHY.h4,
-    color: COLORS.textPrimary,
-    marginBottom: SPACING.md,
-    marginTop: SPACING.sm,
+  keyboardView: {
+    flex: 1,
   },
-  sectionTitleFirst: { marginTop: 0 },
-  medCard: {
-    backgroundColor: COLORS.background,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.lg,
-    marginBottom: SPACING.lg,
-    borderWidth: 1,
-    borderColor: COLORS.borderLight,
+  scroll: {
+    flex: 1,
   },
-  medHeader: {
+  scrollContent: {
+    paddingVertical: SPACING.lg,
+    paddingHorizontal: SPACING.md,
+  },
+
+  // Centered Container
+  centeredContainer: {
+    maxWidth: MAX_CONTAINER_WIDTH,
+    width: '100%',
+    alignSelf: 'center',
+  },
+
+  // Header
+  header: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    backgroundColor: '#0f766e',
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: '700',
+    marginLeft: SPACING.sm,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerAvatarText: {
+    color: COLORS.white,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
+  // Breadcrumb
+  breadcrumb: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: SPACING.md,
   },
-  medNum: {
-    ...TYPOGRAPHY.label,
-    color: COLORS.primary,
+  breadcrumbLink: {
+    color: '#0f766e',
+    fontSize: 13,
+    fontWeight: '500',
   },
-  removeBtn: {
-    color: COLORS.danger,
-    fontWeight: '600',
+  breadcrumbSeparator: {
+    color: '#94a3b8',
+    fontSize: 13,
+    marginHorizontal: SPACING.xs,
+  },
+  breadcrumbActive: {
+    color: '#64748b',
     fontSize: 13,
   },
-  label: {
-    ...TYPOGRAPHY.label,
+
+  // Page Title
+  pageTitle: {
+    fontSize: 24,
+    fontWeight: '700',
     color: COLORS.textPrimary,
-    marginBottom: SPACING.sm,
+    marginBottom: SPACING.lg,
   },
-  freqScroll: { marginBottom: SPACING.md },
-  freqChip: {
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.sm,
-    borderRadius: RADIUS.full,
-    marginRight: SPACING.sm,
-    backgroundColor: COLORS.background,
-    borderWidth: 1.5,
-    borderColor: COLORS.border,
+
+  // Cards
+  card: {
+    backgroundColor: COLORS.white,
+    borderRadius: 14,
+    padding: SPACING.lg,
+    marginBottom: SPACING.lg,
+    ...SHADOW.card,
   },
-  freqActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+    marginBottom: SPACING.md,
   },
-  freqText: {
-    ...TYPOGRAPHY.caption,
+
+  // Form Grid
+  twoColumnGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.md,
+  },
+  formField: {
+    flex: 1,
+    minWidth: 200,
+  },
+
+  // Labels
+  fieldLabel: {
+    fontSize: 12,
+    fontWeight: '500',
     color: COLORS.textSecondary,
+    marginBottom: 6,
   },
-  freqTextActive: { color: COLORS.white },
-  submitSection: { paddingHorizontal: 0 },
+  required: {
+    color: '#ef4444',
+  },
+
+  // Inputs
+  textInput: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: COLORS.textPrimary,
+  },
+  textArea: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  inputError: {
+    borderColor: '#ef4444',
+  },
+  errorText: {
+    fontSize: 11,
+    color: '#ef4444',
+    marginTop: 4,
+  },
+
+  // Select Field
+  selectField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  selectText: {
+    fontSize: 14,
+    color: COLORS.textPrimary,
+  },
+  selectArrow: {
+    fontSize: 10,
+    color: '#94a3b8',
+  },
+
+  // Gender Input
+
+  // Medications
+  medicationContainer: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  medicationRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    alignItems: 'flex-end',
+  },
+  medField: {
+    flex: 1,
+  },
+  deleteBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#fef2f2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  deleteIcon: {
+    fontSize: 16,
+  },
+
+  // Frequency
+  frequencySection: {
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.md,
+  },
+  frequencyPills: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  freqPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  freqPillActive: {
+    backgroundColor: '#0f766e',
+    borderColor: '#0f766e',
+  },
+  freqPillText: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  freqPillTextActive: {
+    color: COLORS.white,
+  },
+
+  // Add Medicine Button
+  addMedBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: SPACING.sm,
+  },
+  addMedIcon: {
+    fontSize: 16,
+    color: '#0f766e',
+    marginRight: 6,
+  },
+  addMedText: {
+    fontSize: 13,
+    color: '#0f766e',
+    fontWeight: '500',
+  },
+
+  // Action Buttons
+  actionButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: SPACING.md,
+    marginTop: SPACING.md,
+    marginBottom: SPACING.xl,
+  },
+  cancelBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: COLORS.white,
+  },
+  cancelBtnText: {
+    fontSize: 14,
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  saveBtn: {
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#0f766e',
+    shadowColor: '#0f766e',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  saveBtnDisabled: {
+    opacity: 0.6,
+  },
+  saveBtnText: {
+    fontSize: 14,
+    color: COLORS.white,
+    fontWeight: '600',
+  },
 });
 
 export default CreatePrescription;
