@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import COLORS from '../utils/colors';
 import { TYPOGRAPHY, SPACING, RADIUS, SHADOW } from '../utils/theme';
+import { useTheme } from '../context/ThemeContext';
 import ECGLogo from './ECGLogo';
 
 const Header = ({
@@ -27,14 +28,15 @@ const Header = ({
   onLogout,
 }) => {
   const [menuVisible, setMenuVisible] = useState(false);
+  const { mode, toggleTheme } = useTheme();
   const isDashboard = !onBack && title;
   const displayFullNav = (showLogo === true || isDashboard) && role && user && navigation;
 
   const patientTabs = [
     { key: 'Dashboard', label: 'Dashboard' },
     { key: 'Schedule', label: 'Schedule' },
+    
     { key: 'Vitals', label: 'My Vitals' },
-    { key: 'History', label: 'History' },
   ];
   const doctorTabs = [
     { key: 'Home', label: 'Dashboard' },
@@ -198,6 +200,19 @@ const Header = ({
                 <Text style={styles.menuText}>My Vitals</Text>
               </TouchableOpacity>
             )}
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                setMenuVisible(false);
+                toggleTheme?.();
+              }}
+            >
+              <Text style={styles.menuIcon}>{mode === 'dark' ? '☀️' : '🌙'}</Text>
+              <Text style={styles.menuText}>
+                {mode === 'dark' ? 'Daylight Mode' : 'Dark Mode'}
+              </Text>
+            </TouchableOpacity>
             
             <View style={styles.menuDivider} />
             

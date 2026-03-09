@@ -1,22 +1,34 @@
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
-import { View, ActivityIndicator } from 'react-native';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import AuthNavigator from './AuthNavigator';
 import DoctorNavigator from './DoctorNavigator';
 import PatientNavigator from './PatientNavigator';
 import SplashScreen from '../screens/SplashScreen';
-import COLORS from '../utils/colors';
 
 const AppNavigator = () => {
   const { user, loading } = useAuth();
+  const { colors, isDark } = useTheme();
 
   if (loading) {
     return <SplashScreen />;
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer
+      theme={{
+        dark: isDark,
+        colors: {
+          primary: colors.primary,
+          background: colors.background,
+          card: colors.card,
+          text: colors.textPrimary,
+          border: colors.border,
+          notification: colors.danger,
+        },
+      }}
+    >
       {!user ? (
         <AuthNavigator />
       ) : user.role === 'DOCTOR' ? (

@@ -14,7 +14,7 @@ import { formatDateTime, getStatusColor } from '../../utils/helpers';
 import { SPACING, TYPOGRAPHY, RADIUS, SHADOW } from '../../utils/theme';
 
 const IntakeLog = ({ navigation }) => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [history, setHistory] = useState([]);
 
   const load = async () => {
@@ -23,7 +23,7 @@ const IntakeLog = ({ navigation }) => {
       const data = await medicationService.getIntakeHistory(user.profileId);
       const sorted = data.sort(
         (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
-      );w
+      );
       setHistory(sorted);
     } catch (err) {
       console.error(err);
@@ -68,6 +68,7 @@ const IntakeLog = ({ navigation }) => {
         activeTab="History"
         navigation={navigation}
         user={user}
+        onLogout={logout}
       />
       <FlatList
         data={history}

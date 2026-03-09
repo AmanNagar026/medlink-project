@@ -20,9 +20,13 @@ public class Patient {
     private String email;
     private String phoneNumber;
 
+    private Integer age;
     private LocalDate dateOfBirth;
     private String gender;
     private String bloodGroup;
+    
+    private Double height; // in cm
+    private Double weight; // in kg
 
     private String address;
     private List<String> allergies;
@@ -55,6 +59,9 @@ public class Patient {
     public String getPhoneNumber() { return phoneNumber; }
     public void setPhoneNumber(String phoneNumber) { this.phoneNumber = phoneNumber; }
 
+    public Integer getAge() { return age; }
+    public void setAge(Integer age) { this.age = age; }
+
     public LocalDate getDateOfBirth() { return dateOfBirth; }
     public void setDateOfBirth(LocalDate dateOfBirth) { this.dateOfBirth = dateOfBirth; }
 
@@ -63,6 +70,12 @@ public class Patient {
 
     public String getBloodGroup() { return bloodGroup; }
     public void setBloodGroup(String bloodGroup) { this.bloodGroup = bloodGroup; }
+
+    public Double getHeight() { return height; }
+    public void setHeight(Double height) { this.height = height; }
+
+    public Double getWeight() { return weight; }
+    public void setWeight(Double weight) { this.weight = weight; }
 
     public String getAddress() { return address; }
     public void setAddress(String address) { this.address = address; }

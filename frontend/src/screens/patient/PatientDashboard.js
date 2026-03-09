@@ -1,136 +1,246 @@
-import React, { useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   RefreshControl,
-  Alert,
   TouchableOpacity,
+  Pressable,
   SafeAreaView,
+  Alert,
+  Animated,
+  Easing,
+  useWindowDimensions,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
-import ECGLogo from '../../components/ECGLogo';
+import Header from '../../components/Header';
 import medicationService from '../../services/medicationService';
 import prescriptionService from '../../services/prescriptionService';
-import vitalsService from '../../services/vitalsService';
+import patientService from '../../services/patientService';
 import COLORS from '../../utils/colors';
-import { SPACING, TYPOGRAPHY, RADIUS, SHADOW } from '../../utils/theme';
+import { SPACING, RADIUS, SHADOW } from '../../utils/theme';
 
-const PatientDashboard = ({ navigation }) => {
+const defaultSummary = {
+  activeMedications: 0,
+  missedToday: 0,
+  adherenceRate: 0,
+  prescriptions: 0,
+  takenToday: 0,
+  pendingToday: 0,
+  totalToday: 0,
+  streakDays: 0,
+};
+
+const toLabelTime = (timeValue) => {
+  if (!timeValue) return 'Not set';
+
+  if (timeValue.includes('AM') || timeValue.includes('PM')) {
+    return timeValue;
+  }
+
+  const [hourRaw = '0', minuteRaw = '00'] = timeValue.split(':');
+  const hourNum = parseInt(hourRaw, 10);
+  if (Number.isNaN(hourNum)) return timeValue;
+
+  const period = hourNum >= 12 ? 'PM' : 'AM';
+  const hour12 = hourNum % 12 === 0 ? 12 : hourNum % 12;
+  return `${hour12}:${minuteRaw} ${period}`;
+};
+
+const statusTheme = {
+  TAKEN: { text: 'Taken', color: '#047857', bg: '#d1fae5', icon: 'checkmark-circle' },
+  MISSED: { text: 'Missed', color: '#b91c1c', bg: '#fee2e2', icon: 'close-circle' },
+  SKIPPED: { text: 'Skipped', color: '#b45309', bg: '#fef3c7', icon: 'remove-circle' },
+  PENDING: { text: 'Pending', color: '#334155', bg: '#e2e8f0', icon: 'time' },
+};
+
+const PatientDashboard = ({ navigation, route }) => {
   const { user, logout } = useAuth();
-  const [todayMeds, setTodayMeds] = useState([]);
-  const [prescriptions, setPrescriptions] = useState([]);
-  const [adherence, setAdherence] = useState({
-    taken: 0,
-    missed: 0,
-    adherenceRate: 76,
-  });
-  const [latestVitals, setLatestVitals] = useState(null);
-  const [streakDays, setStreakDays] = useState(4);
+  const { width } = useWindowDimensions();
+
+  const patientId = user?.profileId || user?.id || user?.userId;
+
+  const isDesktop = width >= 1100;
+  const isTablet = width >= 760;
+
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const patientId = user?.profileId;
+  const [summary, setSummary] = useState(defaultSummary);
+  const [todayMeds, setTodayMeds] = useState([]);
+  const [activeMeds, setActiveMeds] = useState([]);
+  const [trackerLimit, setTrackerLimit] = useState(5);
+  const entranceAnim = useRef(new Animated.Value(0)).current;
 
-  const loadData = async () => {
-    if (!patientId) return;
+  const pendingCount = useMemo(
+    () => todayMeds.filter((med) => med.status === 'PENDING').length,
+    [todayMeds]
+  );
+
+  const loadData = useCallback(async () => {
+    if (!patientId) {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
+    setLoading(true);
     try {
-      const [meds, prescr, adh, vitals] = await Promise.all([
+      const [summaryData, intakes, schedules] = await Promise.all([
+        patientService.getDashboardSummary(patientId).catch(() => null),
         medicationService.getTodayIntakes(patientId),
-        prescriptionService.getActiveByPatient(patientId),
-        medicationService.getAdherence(patientId),
-        vitalsService.getLatest(patientId).catch(() => null),
+        medicationService.getSchedule(patientId),
       ]);
-      setTodayMeds(meds);
-      setPrescriptions(prescr);
-      setAdherence(adh);
-      setLatestVitals(vitals);
+
+      setTodayMeds(intakes || []);
+      setActiveMeds((schedules || []).filter((item) => item.active));
+
+      if (summaryData) {
+        setSummary({ ...defaultSummary, ...summaryData });
+      } else {
+        const [adherence, prescriptions] = await Promise.all([
+          medicationService.getAdherence(patientId).catch(() => null),
+          prescriptionService.getActiveByPatient(patientId).catch(() => []),
+        ]);
+
+        const missedToday = (intakes || []).filter(
+          (med) => med.status === 'MISSED' || med.status === 'SKIPPED'
+        ).length;
+        const takenToday = (intakes || []).filter((med) => med.status === 'TAKEN').length;
+
+        setSummary({
+          ...defaultSummary,
+          activeMedications: (schedules || []).filter((item) => item.active).length,
+          missedToday,
+          adherenceRate: Math.round(adherence?.adherenceRate || 0),
+          prescriptions: (prescriptions || []).length,
+          takenToday,
+          pendingToday: (intakes || []).filter((med) => med.status === 'PENDING').length,
+          totalToday: (intakes || []).length,
+        });
+      }
     } catch (error) {
-      console.error('Dashboard load error:', error);
+      console.error('Patient dashboard load error', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [patientId]);
 
-  useFocusEffect(useCallback(() => {
-    loadData();
-  }, []));
-
-  const handleTake = async (med) => {
-    try {
-      await medicationService.updateIntakeStatus(med.id, 'TAKEN');
+  useFocusEffect(
+    useCallback(() => {
       loadData();
-    } catch (err) {
-      Alert.alert('Error', 'Could not update status');
+      const intervalId = setInterval(loadData, 30000);
+      return () => clearInterval(intervalId);
+    }, [loadData])
+  );
+
+  useEffect(() => {
+    const refreshAt = route?.params?.refreshAt;
+    if (refreshAt) {
+      loadData();
+    }
+  }, [route?.params?.refreshAt, loadData]);
+
+  useEffect(() => {
+    if (!loading) {
+      entranceAnim.setValue(0);
+      Animated.timing(entranceAnim, {
+        toValue: 1,
+        duration: 320,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [loading, entranceAnim]);
+
+  const updateStatus = async (medication, status) => {
+    try {
+      await medicationService.updateIntakeStatus(medication.id, status);
+      await loadData();
+    } catch (error) {
+      Alert.alert('Update failed', 'Could not update medication status. Try again.');
     }
   };
 
-  const handleSkip = async (med) => {
-    try {
-      await medicationService.updateIntakeStatus(med.id, 'SKIPPED');
-      loadData();
-    } catch (err) {
-      Alert.alert('Error', 'Could not update status');
-    }
-  };
+  const quickLinks = [
+    { label: 'Add Medication', icon: 'add-circle', route: 'AddMedication' },
+    { label: 'View Schedule', icon: 'calendar', route: 'Schedule' },
+    { label: 'Log Vitals', icon: 'pulse', route: 'Vitals' },
+    { label: 'Reminders', icon: 'notifications', route: 'Reminders' },
+  ];
 
-  const pendingCount = todayMeds.filter((m) => m.status === 'PENDING').length;
-  const takenToday = todayMeds.filter((m) => m.status === 'TAKEN').length;
-
-  // Group medications by time of day
-  const morningMeds = todayMeds.filter(m => {
-    const hour = parseInt(m.scheduledTime?.split(':')[0]) || 0;
-    return hour >= 5 && hour < 12;
-  });
-  const eveningMeds = todayMeds.filter(m => {
-    const hour = parseInt(m.scheduledTime?.split(':')[0]) || 0;
-    return hour >= 17 && hour < 22;
-  });
+  const stats = [
+    {
+      title: 'Active Medications',
+      value: summary.activeMedications,
+      icon: 'medkit',
+      colors: ['#0f766e', '#14b8a6'],
+    },
+    {
+      title: 'Missed Dose',
+      value: summary.missedToday,
+      icon: 'close-circle',
+      colors: ['#ef4444', '#f87171'],
+    },
+    {
+      title: 'Adherence Rate',
+      value: `${summary.adherenceRate}%`,
+      icon: 'analytics',
+      colors: ['#06b6d4', '#3b82f6'],
+    },
+    {
+      title: 'Prescriptions',
+      value: summary.prescriptions,
+      icon: 'document-text',
+      colors: ['#475569', '#64748b'],
+    },
+  ];
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Top Navigation Bar */}
-      <View style={styles.topNav}>
-        <View style={styles.navLeft}>
-          <ECGLogo size={36} />
-          <Text style={styles.navTitle}>MedLink</Text>
-        </View>
-        <View style={styles.navRight}>
-          <TouchableOpacity style={styles.navItem}>
-            <Text style={[styles.navItemText, styles.navItemActive]}>Dashboard</Text>
+      <Header
+        title={`Welcome back, ${user?.name?.split(' ')[0] || 'Patient'}`}
+        subtitle="Here is your health overview for today."
+        role="PATIENT"
+        activeTab="Dashboard"
+        navigation={navigation}
+        user={user}
+        onLogout={logout}
+        rightAction={
+          <TouchableOpacity
+            style={styles.notificationBtn}
+            onPress={() => navigation.navigate('Reminders')}
+          >
+            <Ionicons name="notifications-outline" size={22} color={COLORS.white} />
+            {pendingCount > 0 && (
+              <View style={styles.notificationBadge}>
+                <Text style={styles.notificationBadgeText}>{pendingCount}</Text>
+              </View>
+            )}
           </TouchableOpacity>
-          <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('Schedule')}>
-            <Text style={styles.navItemText}>Schedule</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('Reports')}>
-            <Text style={styles.navItemText}>Reports</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('Reminders')}>
-            <View style={styles.badgeContainer}>
-              <Text style={styles.navItemText}>Reminders</Text>
-              {pendingCount > 0 && (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{pendingCount}</Text>
-                </View>
-              )}
-            </View>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.avatarBtn} onPress={logout}>
-            <View style={styles.navAvatar}>
-              <Text style={styles.navAvatarText}>
-                {user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?'}
-              </Text>
-            </View>
-          </TouchableOpacity>
-        </View>
-      </View>
+        }
+      />
 
-      <ScrollView
-        style={styles.scroll}
+      <Animated.ScrollView
+        style={[
+          styles.scroll,
+          {
+            opacity: entranceAnim,
+            transform: [
+              {
+                translateY: entranceAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [8, 0],
+                }),
+              },
+            ],
+          },
+        ]}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
         refreshControl={
@@ -140,349 +250,281 @@ const PatientDashboard = ({ navigation }) => {
               setRefreshing(true);
               loadData();
             }}
+            tintColor={COLORS.primary}
           />
         }
       >
-        {/* Welcome Card (Hero Section) */}
-        <View style={styles.welcomeCard}>
-          <View style={styles.welcomeLeft}>
-            <View style={styles.welcomeAvatar}>
-              <Text style={styles.welcomeAvatarText}>
-                {user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?'}
-              </Text>
-            </View>
-            <View style={styles.welcomeText}>
-              <Text style={styles.welcomeTitle}>Welcome back, {user?.name?.split(' ')[0] || 'Patient'}!</Text>
-              <Text style={styles.welcomeSubtitle}>Here's your health overview for today.</Text>
-            </View>
-          </View>
-          <View style={styles.welcomeActions}>
-            <TouchableOpacity style={styles.addBtn} onPress={() => navigation.navigate('Vitals')}>
-              <Text style={styles.addBtnText}>+ Add</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.trendsBtn} onPress={() => navigation.navigate('History')}>
-              <Text style={styles.trendsBtnText}>View Trends</Text>
-            </TouchableOpacity>
-          </View>
+        <View style={[styles.statsGrid, isTablet && styles.statsGridTablet]}>
+          {stats.map((stat) => (
+            <Pressable
+              key={stat.title}
+              style={({ hovered, pressed }) => [
+                styles.interactiveCard,
+                hovered && styles.interactiveCardHover,
+                pressed && styles.interactiveCardPressed,
+                isDesktop && styles.statCardDesktop,
+              ]}
+            >
+              <LinearGradient colors={stat.colors} style={styles.statCard}>
+                <View style={styles.statTopRow}>
+                  <Text style={styles.statTitle}>{stat.title}</Text>
+                  <Ionicons name={stat.icon} size={18} color={COLORS.white} />
+                </View>
+                <Text style={styles.statValue}>{stat.value}</Text>
+              </LinearGradient>
+            </Pressable>
+          ))}
         </View>
 
-        {/* Main Content Grid */}
-        <View style={styles.mainGrid}>
-          {/* Left Column */}
+        <View style={[styles.contentColumns, isDesktop && styles.contentColumnsDesktop]}>
           <View style={styles.leftColumn}>
-            {/* Health Score Section */}
-            <View style={styles.healthScoreCard}>
-              <View style={styles.healthScoreLeft}>
-                <Text style={styles.healthScoreLabel}>Health Score</Text>
-                <View style={styles.statusBadge}>
-                  <Text style={styles.statusEmoji}>🌿</Text>
-                  <Text style={styles.statusText}>Good</Text>
-                </View>
-                <View style={styles.circularProgress}>
-                  <View style={styles.progressRing}>
-                    <Text style={styles.progressPercent}>76%</Text>
-                    <Text style={styles.progressLabel}>Good</Text>
-                  </View>
-                </View>
-              </View>
-              <View style={styles.healthScoreRight}>
-                <Text style={styles.dataTitle}>Based on did ruining data:</Text>
-                <View style={styles.dataList}>
-                  <View style={styles.dataItem}>
-                    <Text style={styles.checkIcon}>✓</Text>
-                    <Text style={styles.dataText}>Medication adherence : 66%</Text>
-                  </View>
-                  <View style={styles.dataItem}>
-                    <Text style={styles.checkIcon}>✓</Text>
-                    <Text style={styles.dataText}>Latest vitals: 19-99</Text>
-                  </View>
-                  <View style={styles.dataItem}>
-                    <Text style={styles.checkIcon}>✓</Text>
-                    <Text style={styles.dataText}>You're on track, keep it up!</Text>
-                  </View>
-                </View>
-              </View>
-            </View>
-
-            {/* Latest Vitals Card */}
-            <View style={styles.vitalsCard}>
+            <View style={styles.card}>
               <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>Latest Vitals</Text>
-                <TouchableOpacity>
-                  <Text style={styles.viewAllLink}>View All →</Text>
+                <Text style={styles.cardTitle}>Today's Medications</Text>
+                <TouchableOpacity onPress={() => navigation.navigate('Schedule')}>
+                  <Text style={styles.linkText}>Open schedule</Text>
                 </TouchableOpacity>
               </View>
-              <View style={styles.vitalItem}>
-                <View style={styles.vitalIcon}>
-                  <Text style={styles.vitalIconText}>🌿</Text>
+
+              {loading ? (
+                <Text style={styles.mutedText}>Loading medications...</Text>
+              ) : todayMeds.length === 0 ? (
+                <View style={styles.emptyWrap}>
+                  <Ionicons name="medkit-outline" size={28} color={COLORS.textLight} />
+                  <Text style={styles.mutedText}>No medications planned for today.</Text>
                 </View>
-                <View style={styles.vitalInfo}>
-                  <Text style={styles.vitalName}>Metformin 500 mg</Text>
-                  <Text style={styles.vitalDesc}>Take 1 tablet twice daily</Text>
-                  <View style={styles.vitalStatusRow}>
-                    <View style={styles.takenBadge}>
-                      <Text style={styles.takenText}>✓ Taken</Text>
-                    </View>
-                    <Text style={styles.dosageText}>500 mg</Text>
-                  </View>
-                </View>
-                <View style={styles.vitalExpiry}>
-                  <Text style={styles.expiryLabel}>EXPIRES/DUITE</Text>
-                  <Text style={styles.expiryDate}>19 Mar 2026</Text>
-                </View>
-                <View style={styles.normalBadge}>
-                  <Text style={styles.normalText}>Normal</Text>
-                </View>
+              ) : (
+                todayMeds.slice(0, 6).map((med) => {
+                  const theme = statusTheme[med.status] || statusTheme.PENDING;
+                  return (
+                    <Pressable
+                      key={med.id}
+                      style={({ hovered }) => [styles.medRow, hovered && styles.medRowHover]}
+                    >
+                      <View style={styles.medDetails}>
+                        <View style={styles.medIconWrap}>
+                          <Ionicons name="pill" size={16} color={COLORS.primary} />
+                        </View>
+                        <View style={styles.medTextWrap}>
+                          <Text style={styles.medName}>{med.medicationName || 'Medication'}</Text>
+                          <Text style={styles.medMeta}>
+                            {med.dosage || '1 dose'} | {toLabelTime(med.scheduledTime)}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {med.status === 'PENDING' ? (
+                        <View style={styles.medActionWrap}>
+                          <TouchableOpacity
+                            style={styles.takeBtn}
+                            onPress={() => updateStatus(med, 'TAKEN')}
+                          >
+                            <Text style={styles.takeBtnText}>Take</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.skipBtn}
+                            onPress={() => updateStatus(med, 'SKIPPED')}
+                          >
+                            <Text style={styles.skipBtnText}>Skip</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <View style={[styles.statusBadge, { backgroundColor: theme.bg }]}>
+                          <Ionicons name={theme.icon} size={14} color={theme.color} />
+                          <Text style={[styles.statusText, { color: theme.color }]}>{theme.text}</Text>
+                        </View>
+                      )}
+                    </Pressable>
+                  );
+                })
+              )}
+            </View>
+
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>Medication Tracker</Text>
+                <TouchableOpacity onPress={() => navigation.navigate('AddMedication')}>
+                  <Text style={styles.linkText}>Add medication</Text>
+                </TouchableOpacity>
               </View>
+
+              <View style={styles.limitRow}>
+                {[5, 10, 15, 25, 50].map((count) => (
+                  <Pressable
+                    key={count}
+                    style={({ hovered }) => [
+                      styles.limitChip,
+                      trackerLimit === count && styles.limitChipActive,
+                      hovered && trackerLimit !== count && styles.limitChipHover,
+                    ]}
+                    onPress={() => setTrackerLimit(count)}
+                  >
+                    <Text
+                      style={[
+                        styles.limitChipText,
+                        trackerLimit === count && styles.limitChipTextActive,
+                      ]}
+                    >
+                      {count}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              {activeMeds.length === 0 ? (
+                <Text style={styles.mutedText}>No active medication schedule found.</Text>
+              ) : (
+                activeMeds.slice(0, trackerLimit).map((item) => (
+                  <Pressable key={item.id} style={({ hovered }) => [styles.trackerRow, hovered && styles.trackerRowHover]}>
+                    <View>
+                      <Text style={styles.trackerName}>{item.medicationName}</Text>
+                      <Text style={styles.trackerMeta}>
+                        {item.dosage || 'Dose not set'} | {(item.frequency || 'DAILY').replace(/_/g, ' ')}
+                      </Text>
+                    </View>
+                    <View style={styles.activeBadge}>
+                      <Text style={styles.activeBadgeText}>Active</Text>
+                    </View>
+                  </Pressable>
+                ))
+              )}
             </View>
           </View>
 
-          {/* Right Sidebar */}
           <View style={styles.rightColumn}>
-            {/* Rewards Card */}
-            <View style={styles.rewardsCard}>
-              <View style={styles.rewardsHeader}>
-                <Text style={styles.rewardsIcon}>🏆</Text>
-                <Text style={styles.rewardsTitle}>Rewards</Text>
-                <View style={styles.rewardsIcons}>
-                  <Text style={styles.miniIcon}>👤</Text>
-                  <Text style={styles.miniIcon}>😊</Text>
-                  <View style={styles.miniBadge}>
-                    <Text style={styles.miniBadgeText}>2</Text>
-                  </View>
-                </View>
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Adherence</Text>
+              <View style={styles.rateWrap}>
+                <Text style={styles.rateValue}>{summary.adherenceRate}%</Text>
+                <Text style={styles.rateLabel}>Current adherence rate</Text>
               </View>
-              <Text style={styles.streakLabel}>Adherence Streak</Text>
-              <View style={styles.streakRow}>
-                <Text style={styles.streakNumber}>4</Text>
-                <Text style={styles.streakText}>days</Text>
-                <Text style={styles.streakSubtext}>( Great job)</Text>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: `${Math.min(100, summary.adherenceRate)}%` }]} />
               </View>
-              <Text style={styles.streakDesc}>You've taken your meds for 4 days in a row!</Text>
-              <View style={styles.progressBarContainer}>
-                <View style={styles.progressBar}>
-                  <View style={[styles.progressFill, { width: '40%' }]} />
-                </View>
-                <Text style={styles.pointsText}>20 pts</Text>
+              <View style={styles.metricRow}>
+                <Text style={styles.metricText}>Taken: {summary.takenToday}</Text>
+                <Text style={styles.metricText}>Missed: {summary.missedToday}</Text>
+                <Text style={styles.metricText}>Pending: {summary.pendingToday}</Text>
               </View>
+              <Text style={styles.streakText}>Streak: {summary.streakDays} day(s)</Text>
             </View>
 
-            {/* Today's Schedule */}
-            <View style={styles.scheduleCard}>
-              <View style={styles.scheduleHeader}>
-                <Text style={styles.scheduleTitle}>Today's Schedule</Text>
-                <TouchableOpacity>
-                  <Text style={styles.expandLink}>Expand →</Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Morning */}
-              <View style={styles.timeSlot}>
-                <View style={styles.timeSlotHeader}>
-                  <Text style={styles.timeLabel}>Morning</Text>
-                  <Text style={styles.timeValue}>9:00 AM</Text>
-                </View>
-                <View style={styles.medicationItem}>
-                  <View style={styles.medIcon}>
-                    <Text style={styles.medIconText}>🌿</Text>
-                  </View>
-                  <View style={styles.medInfo}>
-                    <Text style={styles.medName}>Metformin 500 mg</Text>
-                    <Text style={styles.medStatus}>1 Taken 500 mg</Text>
-                  </View>
-                  <TouchableOpacity style={styles.takeBtn}>
-                    <Text style={styles.takeBtnText}>✓ Take</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              {/* Evening */}
-              <View style={styles.timeSlot}>
-                <View style={styles.timeSlotHeader}>
-                  <Text style={styles.timeLabel}>Evening</Text>
-                  <Text style={styles.timeValue}>8:30 PM</Text>
-                </View>
-                <View style={styles.medicationItem}>
-                  <View style={[styles.medIcon, styles.medIconPending]}>
-                    <Text style={styles.medIconText}>💊</Text>
-                  </View>
-                  <View style={styles.medInfo}>
-                    <Text style={styles.medName}>Metformin 500 mg</Text>
-                    <Text style={styles.medStatusPending}>1 Pending 500 mg</Text>
-                  </View>
-                  <TouchableOpacity style={[styles.takeBtn, styles.takeBtnPending]}>
-                    <Text style={styles.takeBtnTextPending}>Take</Text>
-                  </TouchableOpacity>
-                </View>
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Quick Navigation</Text>
+              <View style={styles.quickGrid}>
+                {quickLinks.map((item) => (
+                  <Pressable
+                    key={item.label}
+                    style={({ hovered, pressed }) => [
+                      styles.quickCard,
+                      hovered && styles.quickCardHover,
+                      pressed && styles.quickCardPressed,
+                    ]}
+                    onPress={() => navigation.navigate(item.route)}
+                  >
+                    <View style={styles.quickIconWrap}>
+                      <Ionicons name={item.icon} size={20} color={COLORS.primary} />
+                    </View>
+                    <Text style={styles.quickLabel}>{item.label}</Text>
+                  </Pressable>
+                ))}
               </View>
             </View>
           </View>
         </View>
-      </ScrollView>
 
+        <View style={{ height: 100 }} />
+      </Animated.ScrollView>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: '#f0f4f4',
+  container: {
+    flex: 1,
+    backgroundColor: '#f3f6fb',
   },
-  scroll: { 
+  scroll: {
     flex: 1,
   },
-  scrollContent: { 
+  scrollContent: {
     padding: SPACING.lg,
-    paddingBottom: SPACING.xxxl,
+    paddingBottom: 110,
   },
-
-  // Top Navigation
-  topNav: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
-    backgroundColor: '#0f766e',
-  },
-  navLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  navTitle: {
-    color: COLORS.white,
-    fontSize: 20,
-    fontWeight: '700',
+  notificationBtn: {
+    position: 'relative',
     marginLeft: SPACING.sm,
   },
-  navRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.lg,
-  },
-  navItem: {
-    paddingVertical: SPACING.xs,
-  },
-  navItemText: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  navItemActive: {
-    color: COLORS.white,
-    fontWeight: '600',
-  },
-  badgeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  badge: {
+  notificationBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -8,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
     backgroundColor: '#ef4444',
-    borderRadius: 10,
-    minWidth: 18,
-    height: 18,
-    justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 4,
+    justifyContent: 'center',
+    paddingHorizontal: 4,
   },
-  badgeText: {
+  notificationBadgeText: {
     color: COLORS.white,
     fontSize: 10,
     fontWeight: '700',
-    paddingHorizontal: 4,
   },
-  avatarBtn: {
-    marginLeft: SPACING.sm,
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.md,
+    marginBottom: SPACING.lg,
   },
-  navAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.25)',
-    justifyContent: 'center',
-    alignItems: 'center',
+  statsGridTablet: {
+    flexWrap: 'nowrap',
   },
-  navAvatarText: {
-    color: COLORS.white,
-    fontSize: 14,
-    fontWeight: '700',
+  statCard: {
+    width: '100%',
+    borderRadius: RADIUS.xl,
+    padding: SPACING.lg,
+    minHeight: 112,
+    ...SHADOW.cardElevated,
   },
-
-  // Welcome Card
-  welcomeCard: {
+  interactiveCard: {
+    width: '48%',
+    borderRadius: RADIUS.xl,
+  },
+  statCardDesktop: {
+    width: undefined,
+    flex: 1,
+  },
+  interactiveCardHover: {
+    transform: [{ translateY: -2 }],
+  },
+  interactiveCardPressed: {
+    transform: [{ scale: 0.99 }],
+  },
+  statTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: COLORS.white,
-    borderRadius: 20,
-    padding: SPACING.xl,
-    marginBottom: SPACING.lg,
-    ...SHADOW.card,
   },
-  welcomeLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  welcomeAvatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#0f766e',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: SPACING.md,
-  },
-  welcomeAvatarText: {
-    color: COLORS.white,
-    fontSize: 24,
-    fontWeight: '700',
-  },
-  welcomeText: {
-    flex: 1,
-  },
-  welcomeTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-    marginBottom: 4,
-  },
-  welcomeSubtitle: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
-  },
-  welcomeActions: {
-    flexDirection: 'row',
-    gap: SPACING.md,
-  },
-  addBtn: {
-    backgroundColor: '#0f766e',
-    paddingVertical: SPACING.sm,
-    paddingHorizontal: SPACING.lg,
-    borderRadius: 8,
-  },
-  addBtnText: {
-    color: COLORS.white,
-    fontSize: 14,
+  statTitle: {
+    color: 'rgba(255,255,255,0.95)',
+    fontSize: 13,
     fontWeight: '600',
   },
-  trendsBtn: {
-    backgroundColor: '#0f766e',
-    paddingVertical: SPACING.sm,
-    paddingHorizontal: SPACING.lg,
-    borderRadius: 8,
-  },
-  trendsBtnText: {
+  statValue: {
     color: COLORS.white,
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 30,
+    fontWeight: '700',
+    marginTop: SPACING.md,
   },
-
-  // Main Grid
-  mainGrid: {
-    flexDirection: 'row',
+  contentColumns: {
+    flexDirection: 'column',
     gap: SPACING.lg,
+  },
+  contentColumnsDesktop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
   },
   leftColumn: {
     flex: 2,
@@ -492,98 +534,10 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: SPACING.lg,
   },
-
-  // Health Score Card
-  healthScoreCard: {
-    flexDirection: 'row',
+  card: {
     backgroundColor: COLORS.white,
-    borderRadius: 20,
-    padding: SPACING.xl,
-    ...SHADOW.card,
-  },
-  healthScoreLeft: {
-    width: 140,
-    alignItems: 'center',
-  },
-  healthScoreLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-    marginBottom: SPACING.sm,
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f0fdf4',
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: 4,
-    borderRadius: 16,
-    marginBottom: SPACING.md,
-  },
-  statusEmoji: {
-    fontSize: 14,
-    marginRight: 4,
-  },
-  statusText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#16a34a',
-  },
-  circularProgress: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    borderWidth: 8,
-    borderColor: '#0f766e',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderLeftColor: '#ccfbf1',
-  },
-  progressRing: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  progressPercent: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#0f766e',
-  },
-  progressLabel: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-  },
-  healthScoreRight: {
-    flex: 1,
-    paddingLeft: SPACING.xl,
-  },
-  dataTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-    marginBottom: SPACING.md,
-  },
-  dataList: {
-    gap: SPACING.sm,
-  },
-  dataItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  checkIcon: {
-    color: '#0f766e',
-    fontSize: 14,
-    marginRight: SPACING.sm,
-  },
-  dataText: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
-  },
-
-  // Vitals Card
-  vitalsCard: {
-    backgroundColor: COLORS.white,
-    borderRadius: 20,
-    padding: SPACING.xl,
+    borderRadius: RADIUS.xl,
+    padding: SPACING.lg,
     ...SHADOW.card,
   },
   cardHeader: {
@@ -591,295 +545,259 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: SPACING.md,
+    gap: SPACING.md,
   },
   cardTitle: {
-    fontSize: 18,
-    fontWeight: '600',
     color: COLORS.textPrimary,
-  },
-  viewAllLink: {
-    fontSize: 14,
-    color: '#0f766e',
-    fontWeight: '500',
-  },
-  vitalItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f8fafc',
-    borderRadius: 16,
-    padding: SPACING.md,
-  },
-  vitalIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#f0fdf4',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: SPACING.md,
-  },
-  vitalIconText: {
-    fontSize: 24,
-  },
-  vitalInfo: {
-    flex: 1,
-  },
-  vitalName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-    marginBottom: 2,
-  },
-  vitalDesc: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
-    marginBottom: SPACING.xs,
-  },
-  vitalStatusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
-  },
-  takenBadge: {
-    backgroundColor: '#0f766e',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-  },
-  takenText: {
-    color: COLORS.white,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  dosageText: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    backgroundColor: '#e2e8f0',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-  },
-  vitalExpiry: {
-    alignItems: 'flex-end',
-    marginRight: SPACING.md,
-  },
-  expiryLabel: {
-    fontSize: 10,
-    color: COLORS.textLight,
-    marginBottom: 2,
-  },
-  expiryDate: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-  },
-  normalBadge: {
-    backgroundColor: '#f0f9ff',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  normalText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#0ea5e9',
-  },
-
-  // Rewards Card
-  rewardsCard: {
-    backgroundColor: COLORS.white,
-    borderRadius: 20,
-    padding: SPACING.lg,
-    ...SHADOW.card,
-  },
-  rewardsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: SPACING.md,
-  },
-  rewardsIcon: {
-    fontSize: 20,
-    marginRight: SPACING.xs,
-  },
-  rewardsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-    flex: 1,
-  },
-  rewardsIcons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  miniIcon: {
-    fontSize: 16,
-  },
-  miniBadge: {
-    backgroundColor: '#0f766e',
-    borderRadius: 10,
-    minWidth: 18,
-    height: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  miniBadgeText: {
-    color: COLORS.white,
-    fontSize: 10,
+    fontSize: 22,
     fontWeight: '700',
   },
-  streakLabel: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
-    marginBottom: SPACING.xs,
-  },
-  streakRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    marginBottom: SPACING.xs,
-  },
-  streakNumber: {
-    fontSize: 36,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-  },
-  streakText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-    marginLeft: 4,
-  },
-  streakSubtext: {
-    fontSize: 14,
-    color: '#16a34a',
-    marginLeft: 4,
-  },
-  streakDesc: {
+  linkText: {
+    color: COLORS.primary,
     fontSize: 13,
-    color: COLORS.textSecondary,
-    marginBottom: SPACING.md,
-  },
-  progressBarContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
-  },
-  progressBar: {
-    flex: 1,
-    height: 8,
-    backgroundColor: '#e2e8f0',
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#0f766e',
-    borderRadius: 4,
-  },
-  pointsText: {
-    fontSize: 12,
     fontWeight: '600',
-    color: COLORS.textSecondary,
   },
-
-  // Schedule Card
-  scheduleCard: {
-    backgroundColor: COLORS.white,
-    borderRadius: 20,
-    padding: SPACING.lg,
-    ...SHADOW.card,
-  },
-  scheduleHeader: {
+  limitRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: SPACING.md,
-  },
-  scheduleTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-  },
-  expandLink: {
-    fontSize: 13,
-    color: '#0f766e',
-    fontWeight: '500',
-  },
-  timeSlot: {
-    marginBottom: SPACING.md,
-  },
-  timeSlotHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 8,
     marginBottom: SPACING.sm,
   },
-  timeLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
+  limitChip: {
+    borderRadius: 999,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#d8e3ef',
+    backgroundColor: '#f5f9fd',
   },
-  timeValue: {
-    fontSize: 13,
+  limitChipActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#def7f2',
+  },
+  limitChipHover: {
+    borderColor: '#b8ccdf',
+  },
+  limitChipText: {
+    fontSize: 12,
     color: COLORS.textSecondary,
+    fontWeight: '700',
   },
-  medicationItem: {
+  limitChipTextActive: {
+    color: COLORS.primary,
+  },
+  emptyWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING.xl,
+    gap: SPACING.sm,
+  },
+  mutedText: {
+    color: COLORS.textSecondary,
+    fontSize: 14,
+  },
+  medRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    borderWidth: 1,
+    borderColor: '#e8edf5',
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    marginBottom: SPACING.sm,
+    backgroundColor: '#f8fbff',
+  },
+  medRowHover: {
+    borderColor: '#cfe3f3',
+    backgroundColor: '#f3f8fd',
+  },
+  medDetails: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8fafc',
-    borderRadius: 12,
-    padding: SPACING.sm,
+    flex: 1,
+    minWidth: 0,
   },
-  medIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f0fdf4',
-    justifyContent: 'center',
+  medIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#dbf4ef',
     alignItems: 'center',
+    justifyContent: 'center',
     marginRight: SPACING.sm,
   },
-  medIconPending: {
-    backgroundColor: '#fef3c7',
-  },
-  medIconText: {
-    fontSize: 18,
-  },
-  medInfo: {
-    flex: 1,
+  medTextWrap: {
+    flexShrink: 1,
   },
   medName: {
-    fontSize: 14,
-    fontWeight: '600',
     color: COLORS.textPrimary,
+    fontSize: 15,
+    fontWeight: '700',
   },
-  medStatus: {
+  medMeta: {
+    color: COLORS.textSecondary,
     fontSize: 12,
-    color: '#16a34a',
+    marginTop: 2,
   },
-  medStatusPending: {
-    fontSize: 12,
-    color: '#d97706',
+  medActionWrap: {
+    flexDirection: 'row',
+    gap: SPACING.xs,
   },
   takeBtn: {
-    backgroundColor: '#0f766e',
+    backgroundColor: COLORS.primary,
+    borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingVertical: 8,
   },
   takeBtnText: {
     color: COLORS.white,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
   },
-  takeBtnPending: {
-    backgroundColor: '#fbbf24',
+  skipBtn: {
+    backgroundColor: '#e2e8f0',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
-  takeBtnTextPending: {
-    color: '#92400e',
+  skipBtnText: {
+    color: '#475569',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  trackerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#edf2f8',
+    paddingVertical: SPACING.sm,
+  },
+  trackerRowHover: {
+    backgroundColor: '#f8fbff',
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.sm,
+  },
+  trackerName: {
+    color: COLORS.textPrimary,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  trackerMeta: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    marginTop: 2,
+    textTransform: 'capitalize',
+  },
+  activeBadge: {
+    backgroundColor: '#d1fae5',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  activeBadgeText: {
+    color: '#047857',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  rateWrap: {
+    alignItems: 'center',
+    marginTop: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  rateValue: {
+    fontSize: 48,
+    fontWeight: '700',
+    color: COLORS.primary,
+    lineHeight: 52,
+  },
+  rateLabel: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+  },
+  progressTrack: {
+    width: '100%',
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#e2e8f0',
+    overflow: 'hidden',
+    marginBottom: SPACING.md,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#0d9488',
+    borderRadius: 999,
+  },
+  metricRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: SPACING.sm,
+    gap: SPACING.sm,
+  },
+  metricText: {
+    color: COLORS.textSecondary,
     fontSize: 12,
     fontWeight: '600',
   },
-
+  streakText: {
+    color: COLORS.textPrimary,
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: SPACING.xs,
+  },
+  quickGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+    marginTop: SPACING.md,
+  },
+  quickCard: {
+    width: '48%',
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fbff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.sm,
+  },
+  quickCardHover: {
+    borderColor: '#9dd7cb',
+    backgroundColor: '#f1fbf8',
+    transform: [{ translateY: -1 }],
+  },
+  quickCardPressed: {
+    transform: [{ scale: 0.99 }],
+  },
+  quickIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#dbf4ef',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: SPACING.xs,
+  },
+  quickLabel: {
+    color: COLORS.textPrimary,
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
 });
 
 export default PatientDashboard;

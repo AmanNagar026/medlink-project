@@ -6,7 +6,8 @@ import COLORS from '../../utils/colors';
 import { SPACING, TYPOGRAPHY, RADIUS, SHADOW } from '../../utils/theme';
 
 const ReminderScreen = ({ navigation }) => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+
   return (
     <View style={styles.container}>
       <Header
@@ -16,6 +17,7 @@ const ReminderScreen = ({ navigation }) => {
         activeTab="Reminders"
         navigation={navigation}
         user={user}
+        onLogout={logout}
       />
       <ScrollView
         contentContainerStyle={styles.content}

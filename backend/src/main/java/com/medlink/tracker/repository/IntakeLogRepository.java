@@ -12,4 +12,10 @@ public interface IntakeLogRepository extends MongoRepository<IntakeLog, String> 
     List<IntakeLog> findByPatientIdAndStatus(String patientId, String status);
     List<IntakeLog> findByPatientIdAndScheduledDateBetween(String patientId, LocalDate start, LocalDate end);
     long countByPatientIdAndStatus(String patientId, String status);
+    boolean existsByPatientIdAndMedicationNameAndScheduledDateAndScheduledTime(
+            String patientId,
+            String medicationName,
+            LocalDate scheduledDate,
+            String scheduledTime
+    );
 }
