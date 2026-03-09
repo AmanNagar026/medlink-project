@@ -1,5 +1,6 @@
 package com.medlink.tracker.controller;
 
+import com.medlink.tracker.model.DashboardSummary;
 import com.medlink.tracker.model.Patient;
 import com.medlink.tracker.service.PatientService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +25,11 @@ public class PatientController {
     @GetMapping("/{id}")
     public ResponseEntity<Patient> getById(@PathVariable String id) {
         return ResponseEntity.ok(patientService.getById(id));
+    }
+
+    @GetMapping("/{id}/dashboard-summary")
+    public ResponseEntity<DashboardSummary> getDashboardSummary(@PathVariable String id) {
+        return ResponseEntity.ok(patientService.getDashboardSummary(id));
     }
 
     @GetMapping("/user/{userId}")

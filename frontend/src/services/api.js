@@ -53,48 +53,60 @@ const handleResponse = async (response) => {
 };
 
 export const api = {
-  get: async (endpoint) => {
+  get: async (endpoint, options = {}) => {
     const headers = await getHeaders();
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, { headers });
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, { 
+      headers,
+      signal: options.signal,
+      ...options 
+    });
     return handleResponse(response);
   },
 
-  post: async (endpoint, body, auth = true) => {
+  post: async (endpoint, body, auth = true, options = {}) => {
     const headers = await getHeaders(auth);
     console.log('POST', endpoint, body); // debug
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
+      signal: options.signal,
+      ...options
     });
     return handleResponse(response);
   },
 
-  put: async (endpoint, body) => {
+  put: async (endpoint, body, options = {}) => {
     const headers = await getHeaders();
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method: 'PUT',
       headers,
       body: JSON.stringify(body),
+      signal: options.signal,
+      ...options
     });
     return handleResponse(response);
   },
 
-  patch: async (endpoint, body) => {
+  patch: async (endpoint, body, options = {}) => {
     const headers = await getHeaders();
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method: 'PATCH',
       headers,
       body: JSON.stringify(body),
+      signal: options.signal,
+      ...options
     });
     return handleResponse(response);
   },
 
-  delete: async (endpoint) => {
+  delete: async (endpoint, options = {}) => {
     const headers = await getHeaders();
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method: 'DELETE',
       headers,
+      signal: options.signal,
+      ...options
     });
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return true;

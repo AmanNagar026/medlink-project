@@ -1,12 +1,12 @@
-// MedLink – Enhanced Healthcare UI Palette
-export const COLORS = {
+// MedLink color system with light/dark mode support
+export const LIGHT_COLORS = {
   // Primary Teal Scale
-  primary: '#0f766e',           // Main teal
-  primaryLight: '#14b8a6',      // Light teal
-  primaryLighter: '#5eead4',    // Very light
-  primaryDark: '#115e59',       // Dark teal
-  primaryDarker: '#134e4a',     // Very dark
-  primaryMuted: '#99f6e4',      // Muted teal
+  primary: '#0f766e',
+  primaryLight: '#14b8a6',
+  primaryLighter: '#5eead4',
+  primaryDark: '#115e59',
+  primaryDarker: '#134e4a',
+  primaryMuted: '#99f6e4',
 
   // Soft Gradient Colors
   gradientStart: '#0d9488',
@@ -15,19 +15,19 @@ export const COLORS = {
   gradientDarkEnd: '#134e4a',
 
   // Semantic Colors
-  success: '#10b981',           // Emerald green
+  success: '#10b981',
   successLight: '#d1fae5',
   successDark: '#059669',
 
-  warning: '#f59e0b',           // Amber
+  warning: '#f59e0b',
   warningLight: '#fef3c7',
   warningDark: '#d97706',
 
-  danger: '#ef4444',            // Red
+  danger: '#ef4444',
   dangerLight: '#fee2e2',
   dangerDark: '#dc2626',
 
-  info: '#3b82f6',              // Blue
+  info: '#3b82f6',
   infoLight: '#dbeafe',
   infoDark: '#2563eb',
 
@@ -55,7 +55,7 @@ export const COLORS = {
   statusCompleted: '#64748b',
   statusCancelled: '#ef4444',
   statusPending: '#f59e0b',
-  statusExpiring: '#f97316',    // Orange for expiring
+  statusExpiring: '#f97316',
 
   // Medication Status
   taken: '#10b981',
@@ -77,15 +77,34 @@ export const COLORS = {
   shadow: 'rgba(15, 23, 42, 0.08)',
   shadowDark: 'rgba(15, 23, 42, 0.15)',
 
-  // Legacy aliases for backward compatibility
+  // Legacy aliases
   secondary: '#10b981',
   secondaryLight: '#d1fae5',
   accent: '#f59e0b',
   accentLight: '#fef3c7',
   accentBlue: '#3b82f6',
   accentBlueLight: '#dbeafe',
-  primaryDark: '#115e59',
-  primaryDarker: '#134e4a',
 };
 
+export const DARK_COLORS = {
+  ...LIGHT_COLORS,
+  background: '#0b1220',
+  backgroundAlt: '#121a2b',
+  card: '#172033',
+  cardAlt: '#1f2a40',
+  textPrimary: '#e2e8f0',
+  textSecondary: '#94a3b8',
+  textTertiary: '#7a8ba6',
+  textLight: '#64748b',
+  textMuted: '#475569',
+  border: '#27344c',
+  borderLight: '#1d283c',
+  divider: '#27344c',
+  shadow: 'rgba(0, 0, 0, 0.5)',
+  shadowDark: 'rgba(0, 0, 0, 0.7)',
+};
+
+export const getColors = (mode = 'light') => (mode === 'dark' ? DARK_COLORS : LIGHT_COLORS);
+
+export const COLORS = LIGHT_COLORS;
 export default COLORS;

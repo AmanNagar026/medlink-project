@@ -2,6 +2,7 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Text } from 'react-native';
+import { useTheme } from '../context/ThemeContext';
 import DoctorDashboard from '../screens/doctor/DoctorDashboard';
 import CreatePrescription from '../screens/doctor/CreatePrescription';
 import PatientList from '../screens/doctor/PatientList';
@@ -9,7 +10,6 @@ import PatientSearchScreen from '../screens/doctor/PatientSearchScreen';
 import AddPatientScreen from '../screens/doctor/AddPatientScreen';
 import DoctorProfileScreen from '../screens/doctor/DoctorProfileScreen';
 import DoctorViewProfileScreen from '../screens/doctor/DoctorViewProfileScreen';
-import COLORS from '../utils/colors';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -26,20 +26,22 @@ const DashboardStack = () => (
   </Stack.Navigator>
 );
 
-const DoctorNavigator = () => (
-  <Tab.Navigator
-    screenOptions={({ route }) => ({
+const DoctorNavigator = () => {
+  const { colors } = useTheme();
+  return (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
       headerShown: false,
-      tabBarActiveTintColor: COLORS.primary,
-      tabBarInactiveTintColor: COLORS.textLight,
+      tabBarActiveTintColor: colors.primary,
+      tabBarInactiveTintColor: colors.textLight,
       tabBarLabelStyle: {
         fontSize: 12,
         fontWeight: '600',
       },
       tabBarStyle: {
         borderTopWidth: 1,
-        borderTopColor: COLORS.borderLight,
-        backgroundColor: COLORS.card,
+        borderTopColor: colors.borderLight,
+        backgroundColor: colors.card,
         paddingBottom: 8,
         paddingTop: 8,
         height: 64,
@@ -73,6 +75,7 @@ const DoctorNavigator = () => (
       options={{ tabBarLabel: 'New Rx' }}
     />
   </Tab.Navigator>
-);
+  );
+};
 
 export default DoctorNavigator;

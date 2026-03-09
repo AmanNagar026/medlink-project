@@ -20,6 +20,7 @@ import { api } from '../../services/api';
 import DashboardStatsGrid from '../../components/DashboardStatsGrid';
 import PatientInsightsSection from '../../components/PatientInsightsSection';
 import { usePatientSync } from '../../hooks/usePatientSync';
+import { useTheme } from '../../context/ThemeContext';
 import COLORS from '../../utils/colors';
 import { SPACING, SHADOW } from '../../utils/theme';
 
@@ -27,6 +28,7 @@ const { width } = Dimensions.get('window');
 
 const DoctorDashboard = ({ navigation, route }) => {
   const { user, logout } = useAuth();
+  const { colors, mode, toggleTheme } = useTheme();
   const doctorId = user?.profileId;
   const doctorName = user?.name?.split(' ')[0] || 'Doctor';
   
@@ -191,7 +193,7 @@ const DoctorDashboard = ({ navigation, route }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Profile Dropdown Modal */}
       <Modal visible={showDropdown} transparent animationType="fade" onRequestClose={() => setShowDropdown(false)}>
         <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setShowDropdown(false)}>
@@ -212,6 +214,10 @@ const DoctorDashboard = ({ navigation, route }) => {
             <TouchableOpacity style={styles.profileCardItem} onPress={() => { setShowDropdown(false); navigation.navigate('Profile'); }}>
               <Text style={styles.profileCardItemIcon}>✎</Text>
               <Text style={styles.profileCardItemText}>Edit Profile</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.profileCardItem} onPress={() => { setShowDropdown(false); toggleTheme?.(); }}>
+              <Text style={styles.profileCardItemIcon}>T</Text>
+              <Text style={styles.profileCardItemText}>{mode === 'dark' ? 'Daylight Mode' : 'Dark Mode'}</Text>
             </TouchableOpacity>
             <View style={styles.profileCardDivider} />
             <TouchableOpacity style={styles.profileCardItem} onPress={() => { setShowDropdown(false); logout(); }}>
@@ -241,6 +247,9 @@ const DoctorDashboard = ({ navigation, route }) => {
             <Text style={[styles.navItemText, styles.navActive]}>Dashboard</Text>
           </View>
           <View style={styles.navRight}>
+            <TouchableOpacity style={styles.notificationBtn} onPress={() => toggleTheme?.()}>
+              <Text style={styles.notificationIcon}>{mode === 'dark' ? 'L' : 'D'}</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.notificationBtn}>
               <Text style={styles.notificationIcon}>🔔</Text>
               <View style={styles.notificationBadge}>
@@ -502,3 +511,4 @@ const styles = StyleSheet.create({
 });
 
 export default DoctorDashboard;
+

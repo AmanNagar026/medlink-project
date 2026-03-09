@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -8,330 +8,350 @@ import {
   TextInput,
   Alert,
   RefreshControl,
+  Animated,
+  Easing,
+  Pressable,
+  useWindowDimensions,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
 import Header from '../../components/Header';
-import CustomButton from '../../components/CustomButton';
 import vitalsService from '../../services/vitalsService';
 import COLORS from '../../utils/colors';
-import { SPACING, TYPOGRAPHY, RADIUS, SHADOW } from '../../utils/theme';
+import { SPACING, RADIUS, SHADOW } from '../../utils/theme';
+
+const initialForm = {
+  systolicBP: '',
+  diastolicBP: '',
+  heartRate: '',
+  glucose: '',
+  glucoseUnit: 'mg/dL',
+  stressLevel: '',
+  temperature: '',
+  temperatureUnit: 'Celsius',
+  oxygenSaturation: '',
+  weight: '',
+  weightUnit: 'kg',
+  notes: '',
+};
+
+const statusColor = (status) => {
+  switch (status) {
+    case 'HIGH':
+    case 'HIGH_STAGE_1':
+    case 'HIGH_STAGE_2':
+      return '#dc2626';
+    case 'ELEVATED':
+      return '#d97706';
+    case 'LOW':
+      return '#2563eb';
+    case 'NORMAL':
+    default:
+      return '#059669';
+  }
+};
 
 const VitalsScreen = ({ navigation }) => {
   const { user } = useAuth();
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 1200;
+  const isTablet = width >= 760;
+
   const [vitals, setVitals] = useState([]);
   const [latestVitals, setLatestVitals] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
-  
-  // Form state
-  const [form, setForm] = useState({
-    systolicBP: '',
-    diastolicBP: '',
-    heartRate: '',
-    glucose: '',
-    glucoseUnit: 'mg/dL',
-    stressLevel: '',
-    temperature: '',
-    temperatureUnit: 'Celsius',
-    oxygenSaturation: '',
-    weight: '',
-    weightUnit: 'kg',
-    notes: '',
-  });
+  const [submitting, setSubmitting] = useState(false);
+  const [form, setForm] = useState(initialForm);
 
-  const patientId = user?.profileId;
+  const entranceAnim = useRef(new Animated.Value(0)).current;
 
-  const loadData = async () => {
-    if (!patientId) return;
+  const patientId = user?.profileId || user?.id || user?.userId;
+
+  const loadData = useCallback(async () => {
+    if (!patientId) {
+      setRefreshing(false);
+      return;
+    }
+
     try {
       const [allVitals, latest] = await Promise.all([
         vitalsService.getByPatient(patientId),
         vitalsService.getLatest(patientId).catch(() => null),
       ]);
-      setVitals(allVitals);
+      setVitals(allVitals || []);
       setLatestVitals(latest);
     } catch (err) {
       console.error('Error loading vitals:', err);
     } finally {
       setRefreshing(false);
     }
-  };
+  }, [patientId]);
 
-  useFocusEffect(useCallback(() => {
-    loadData();
-  }, [patientId]));
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+      const interval = setInterval(loadData, 30000);
+      return () => clearInterval(interval);
+    }, [loadData])
+  );
+
+  useEffect(() => {
+    Animated.timing(entranceAnim, {
+      toValue: 1,
+      duration: 320,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [entranceAnim, showAddForm]);
+
+  const cards = useMemo(() => {
+    if (!latestVitals) return [];
+
+    const bp = latestVitals.systolicBP && latestVitals.diastolicBP
+      ? `${latestVitals.systolicBP}/${latestVitals.diastolicBP}`
+      : '--';
+
+    return [
+      {
+        title: 'Blood Pressure',
+        icon: 'fitness',
+        value: bp,
+        unit: 'mmHg',
+        status: latestVitals.systolicBP > 140 ? 'HIGH' : 'NORMAL',
+      },
+      {
+        title: 'Heart Rate',
+        icon: 'heart',
+        value: latestVitals.heartRate || '--',
+        unit: 'bpm',
+        status:
+          latestVitals.heartRate > 100
+            ? 'HIGH'
+            : latestVitals.heartRate < 60
+            ? 'LOW'
+            : 'NORMAL',
+      },
+      {
+        title: 'Glucose',
+        icon: 'water',
+        value: latestVitals.glucose || '--',
+        unit: latestVitals.glucoseUnit || 'mg/dL',
+        status: latestVitals.glucose > 140 ? 'HIGH' : 'NORMAL',
+      },
+      {
+        title: 'Oxygen',
+        icon: 'leaf',
+        value: latestVitals.oxygenSaturation || '--',
+        unit: '%',
+        status: latestVitals.oxygenSaturation < 95 ? 'LOW' : 'NORMAL',
+      },
+    ];
+  }, [latestVitals]);
 
   const handleSubmit = async () => {
+    if (!patientId) {
+      Alert.alert('Profile Error', 'Patient profile not found. Please login again.');
+      return;
+    }
+
+    const hasAtLeastOneMetric =
+      form.systolicBP ||
+      form.diastolicBP ||
+      form.heartRate ||
+      form.glucose ||
+      form.stressLevel ||
+      form.temperature ||
+      form.oxygenSaturation ||
+      form.weight;
+
+    if (!hasAtLeastOneMetric) {
+      Alert.alert('Missing data', 'Please enter at least one vital metric.');
+      return;
+    }
+
+    setSubmitting(true);
     try {
-      const vitalData = {
+      const payload = {
         patientId,
-        patientName: user?.name,
-        systolicBP: form.systolicBP ? parseInt(form.systolicBP) : null,
-        diastolicBP: form.diastolicBP ? parseInt(form.diastolicBP) : null,
-        heartRate: form.heartRate ? parseInt(form.heartRate) : null,
+        patientName: user?.name || 'Patient',
+        systolicBP: form.systolicBP ? parseInt(form.systolicBP, 10) : null,
+        diastolicBP: form.diastolicBP ? parseInt(form.diastolicBP, 10) : null,
+        heartRate: form.heartRate ? parseInt(form.heartRate, 10) : null,
         glucose: form.glucose ? parseFloat(form.glucose) : null,
         glucoseUnit: form.glucoseUnit,
-        stressLevel: form.stressLevel ? parseInt(form.stressLevel) : null,
+        stressLevel: form.stressLevel ? parseInt(form.stressLevel, 10) : null,
         temperature: form.temperature ? parseFloat(form.temperature) : null,
         temperatureUnit: form.temperatureUnit,
-        oxygenSaturation: form.oxygenSaturation ? parseInt(form.oxygenSaturation) : null,
+        oxygenSaturation: form.oxygenSaturation ? parseInt(form.oxygenSaturation, 10) : null,
         weight: form.weight ? parseFloat(form.weight) : null,
         weightUnit: form.weightUnit,
         notes: form.notes,
       };
 
-      await vitalsService.create(vitalData);
-      Alert.alert('Success', 'Vital signs recorded successfully');
+      await vitalsService.create(payload);
+      setForm(initialForm);
       setShowAddForm(false);
-      setForm({
-        systolicBP: '',
-        diastolicBP: '',
-        heartRate: '',
-        glucose: '',
-        glucoseUnit: 'mg/dL',
-        stressLevel: '',
-        temperature: '',
-        temperatureUnit: 'Celsius',
-        oxygenSaturation: '',
-        weight: '',
-        weightUnit: 'kg',
-        notes: '',
-      });
-      loadData();
+      await loadData();
+      Alert.alert('Saved', 'Vitals recorded successfully.');
     } catch (err) {
-      Alert.alert('Error', 'Failed to save vital signs');
+      console.error('Vitals submit error:', err);
+      Alert.alert('Error', 'Failed to save vital signs.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'NORMAL': return COLORS.success;
-      case 'ELEVATED': return COLORS.warning;
-      case 'HIGH':
-      case 'HIGH_STAGE_1':
-      case 'HIGH_STAGE_2': return COLORS.danger;
-      case 'LOW': return COLORS.info;
-      default: return COLORS.textSecondary;
-    }
-  };
-
-  const renderVitalCard = (title, value, unit, status, icon, normalRange) => (
-    <View style={styles.vitalCard}>
-      <View style={styles.vitalHeader}>
-        <Text style={styles.vitalIcon}>{icon}</Text>
-        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(status) + '20' }]}>
-          <Text style={[styles.statusText, { color: getStatusColor(status) }]}>
-            {status?.replace('_', ' ')}
-          </Text>
-        </View>
-      </View>
-      <Text style={styles.vitalValue}>
-        {value || '--'} <Text style={styles.vitalUnit}>{unit}</Text>
-      </Text>
-      <Text style={styles.vitalTitle}>{title}</Text>
-      <Text style={styles.normalRange}>Normal: {normalRange}</Text>
+  const renderField = (label, key, placeholder, keyboardType = 'numeric') => (
+    <View style={styles.field}>
+      <Text style={styles.label}>{label}</Text>
+      <TextInput
+        style={styles.input}
+        placeholder={placeholder}
+        keyboardType={keyboardType}
+        value={form[key]}
+        onChangeText={(v) => setForm((prev) => ({ ...prev, [key]: v }))}
+        placeholderTextColor={COLORS.textLight}
+      />
     </View>
   );
 
   return (
     <View style={styles.container}>
-      <Header
-        title="My Vitals"
-        subtitle="Track your health metrics"
-        onBack={() => navigation.goBack()}
-      />
+      <Header title="My Vitals" subtitle="Track and log health metrics" onBack={() => navigation.goBack()} />
 
-      <ScrollView
-        style={styles.scroll}
+      <Animated.ScrollView
+        style={{
+          opacity: entranceAnim,
+          transform: [
+            {
+              translateY: entranceAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [8, 0],
+              }),
+            },
+          ],
+        }}
         contentContainerStyle={styles.scrollContent}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={loadData} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              loadData();
+            }}
+          />
         }
       >
-        {/* Latest Vitals Summary */}
-        {latestVitals && !showAddForm && (
-          <View style={styles.summarySection}>
-            <Text style={styles.sectionTitle}>Latest Readings</Text>
-            <Text style={styles.lastUpdated}>
-              Last updated: {new Date(latestVitals.recordedAt).toLocaleString()}
-            </Text>
-            
-            <View style={styles.vitalsGrid}>
-              {renderVitalCard(
-                'Blood Pressure',
-                latestVitals.systolicBP && `${latestVitals.systolicBP}/${latestVitals.diastolicBP}`,
-                'mmHg',
-                latestVitals.systolicBP > 140 ? 'HIGH' : 'NORMAL',
-                '🫀',
-                '120/80'
-              )}
-              {renderVitalCard(
-                'Heart Rate',
-                latestVitals.heartRate,
-                'bpm',
-                latestVitals.heartRate > 100 ? 'HIGH' : latestVitals.heartRate < 60 ? 'LOW' : 'NORMAL',
-                '💓',
-                '60-100'
-              )}
-              {renderVitalCard(
-                'Blood Glucose',
-                latestVitals.glucose,
-                latestVitals.glucoseUnit,
-                latestVitals.glucose > 140 ? 'HIGH' : 'NORMAL',
-                '🩸',
-                '70-100'
-              )}
-              {renderVitalCard(
-                'Stress Level',
-                latestVitals.stressLevel,
-                '/10',
-                latestVitals.stressLevel > 7 ? 'HIGH' : latestVitals.stressLevel > 4 ? 'ELEVATED' : 'NORMAL',
-                '🧘',
-                '1-3'
-              )}
+        {latestVitals && (
+          <View style={styles.section}>
+            <View style={styles.sectionHead}>
+              <Text style={styles.sectionTitle}>Latest Readings</Text>
+              <Text style={styles.lastUpdated}>
+                {new Date(latestVitals.recordedAt).toLocaleString()}
+              </Text>
+            </View>
+
+            <View style={styles.grid}>
+              {cards.map((card) => (
+                <Pressable
+                  key={card.title}
+                  style={({ hovered, pressed }) => [
+                    styles.vitalCard,
+                    isDesktop && styles.vitalCardDesktop,
+                    isTablet && !isDesktop && styles.vitalCardTablet,
+                    !isTablet && styles.vitalCardMobile,
+                    hovered && styles.vitalCardHover,
+                    pressed && styles.vitalCardPressed,
+                  ]}
+                >
+                  <View style={styles.vitalCardTop}>
+                    <View style={styles.vitalIconWrap}>
+                      <Ionicons name={card.icon} size={18} color={COLORS.primary} />
+                    </View>
+                    <View style={[styles.statusPill, { backgroundColor: `${statusColor(card.status)}22` }]}>
+                      <Text style={[styles.statusPillText, { color: statusColor(card.status) }]}>{card.status}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.vitalValue}>{card.value}</Text>
+                  <Text style={styles.vitalUnit}>{card.unit}</Text>
+                  <Text style={styles.vitalTitle}>{card.title}</Text>
+                </Pressable>
+              ))}
             </View>
           </View>
         )}
 
-        {/* Add New Vitals Form */}
-        {showAddForm ? (
-          <View style={styles.formCard}>
-            <Text style={styles.formTitle}>Add New Reading</Text>
-            
-            <View style={styles.formRow}>
-              <View style={styles.formField}>
-                <Text style={styles.label}>Systolic BP</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="120"
-                  keyboardType="numeric"
-                  value={form.systolicBP}
-                  onChangeText={(v) => setForm({ ...form, systolicBP: v })}
-                />
-              </View>
-              <View style={styles.formField}>
-                <Text style={styles.label}>Diastolic BP</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="80"
-                  keyboardType="numeric"
-                  value={form.diastolicBP}
-                  onChangeText={(v) => setForm({ ...form, diastolicBP: v })}
-                />
-              </View>
-            </View>
-
-            <View style={styles.formRow}>
-              <View style={styles.formField}>
-                <Text style={styles.label}>Heart Rate (bpm)</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="72"
-                  keyboardType="numeric"
-                  value={form.heartRate}
-                  onChangeText={(v) => setForm({ ...form, heartRate: v })}
-                />
-              </View>
-              <View style={styles.formField}>
-                <Text style={styles.label}>Glucose (mg/dL)</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="90"
-                  keyboardType="numeric"
-                  value={form.glucose}
-                  onChangeText={(v) => setForm({ ...form, glucose: v })}
-                />
-              </View>
-            </View>
-
-            <View style={styles.formRow}>
-              <View style={styles.formField}>
-                <Text style={styles.label}>Stress Level (1-10)</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="3"
-                  keyboardType="numeric"
-                  value={form.stressLevel}
-                  onChangeText={(v) => setForm({ ...form, stressLevel: v })}
-                />
-              </View>
-              <View style={styles.formField}>
-                <Text style={styles.label}>Oxygen Sat (%)</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="98"
-                  keyboardType="numeric"
-                  value={form.oxygenSaturation}
-                  onChangeText={(v) => setForm({ ...form, oxygenSaturation: v })}
-                />
-              </View>
-            </View>
-
-            <View style={styles.formField}>
-              <Text style={styles.label}>Notes (optional)</Text>
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                placeholder="How are you feeling?"
-                multiline
-                numberOfLines={3}
-                value={form.notes}
-                onChangeText={(v) => setForm({ ...form, notes: v })}
-              />
-            </View>
-
-            <View style={styles.formActions}>
-              <CustomButton
-                title="Cancel"
-                variant="outline"
-                onPress={() => setShowAddForm(false)}
-                style={styles.cancelBtn}
-              />
-              <CustomButton
-                title="Save Reading"
-                onPress={handleSubmit}
-                style={styles.saveBtn}
-              />
-            </View>
+        <View style={styles.section}>
+          <View style={styles.sectionHeadInline}>
+            <Text style={styles.sectionTitle}>Log New Vitals</Text>
+            <TouchableOpacity onPress={() => setShowAddForm((prev) => !prev)}>
+              <Text style={styles.toggleText}>{showAddForm ? 'Close' : 'Add'}</Text>
+            </TouchableOpacity>
           </View>
-        ) : (
-          <CustomButton
-            title="+ Add New Reading"
-            onPress={() => setShowAddForm(true)}
-            style={styles.addBtn}
-          />
-        )}
 
-        {/* History Section */}
-        {!showAddForm && vitals.length > 0 && (
-          <View style={styles.historySection}>
-            <Text style={styles.sectionTitle}>History</Text>
-            {vitals.slice(0, 10).map((vital, index) => (
-              <View key={index} style={styles.historyItem}>
-                <View style={styles.historyLeft}>
-                  <Text style={styles.historyDate}>
-                    {new Date(vital.recordedAt).toLocaleDateString()}
-                  </Text>
+          {showAddForm ? (
+            <View style={styles.formCard}>
+              <View style={[styles.row, !isTablet && styles.rowStack]}>{renderField('Systolic BP', 'systolicBP', '120')}{renderField('Diastolic BP', 'diastolicBP', '80')}</View>
+              <View style={[styles.row, !isTablet && styles.rowStack]}>{renderField('Heart Rate (bpm)', 'heartRate', '72')}{renderField('Glucose', 'glucose', '90')}</View>
+              <View style={[styles.row, !isTablet && styles.rowStack]}>{renderField('Oxygen (%)', 'oxygenSaturation', '98')}{renderField('Stress (1-10)', 'stressLevel', '3')}</View>
+              <View style={[styles.row, !isTablet && styles.rowStack]}>{renderField('Temperature', 'temperature', '36.8')}{renderField('Weight (kg)', 'weight', '70')}</View>
+
+              <View style={styles.fieldSingle}>
+                <Text style={styles.label}>Notes</Text>
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  placeholder="Optional note"
+                  value={form.notes}
+                  onChangeText={(v) => setForm((prev) => ({ ...prev, notes: v }))}
+                  placeholderTextColor={COLORS.textLight}
+                  multiline
+                />
+              </View>
+
+              <View style={[styles.actionsRow, !isTablet && styles.actionsColumn]}>
+                <Pressable style={({ hovered, pressed }) => [styles.cancelBtn, hovered && styles.cancelBtnHover, pressed && styles.cancelBtnPress]} onPress={() => setShowAddForm(false)}>
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                </Pressable>
+                <Pressable style={({ hovered, pressed }) => [styles.saveBtn, hovered && styles.saveBtnHover, pressed && styles.saveBtnPress]} onPress={handleSubmit} disabled={submitting}>
+                  <Text style={styles.saveBtnText}>{submitting ? 'Saving...' : 'Save Reading'}</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <Pressable style={({ hovered, pressed }) => [styles.addBtn, hovered && styles.addBtnHover, pressed && styles.addBtnPress]} onPress={() => setShowAddForm(true)}>
+              <Ionicons name="add-circle-outline" size={20} color={COLORS.white} />
+              <Text style={styles.addBtnText}>Add New Reading</Text>
+            </Pressable>
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Recent History</Text>
+          {vitals.length === 0 ? (
+            <Text style={styles.emptyText}>No vitals recorded yet.</Text>
+          ) : (
+            vitals.slice(0, 10).map((vital, idx) => (
+              <Pressable key={vital.id || idx} style={({ hovered }) => [styles.historyItem, !isTablet && styles.historyItemStack, hovered && styles.historyItemHover]}>
+                <View>
+                  <Text style={styles.historyDate}>{new Date(vital.recordedAt).toLocaleDateString()}</Text>
                   <Text style={styles.historyTime}>
                     {new Date(vital.recordedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </Text>
                 </View>
-                <View style={styles.historyValues}>
-                  {vital.systolicBP && (
-                    <Text style={styles.historyValue}>BP: {vital.systolicBP}/{vital.diastolicBP}</Text>
-                  )}
-                  {vital.heartRate && (
-                    <Text style={styles.historyValue}>HR: {vital.heartRate} bpm</Text>
-                  )}
-                  {vital.glucose && (
-                    <Text style={styles.historyValue}>Glucose: {vital.glucose}</Text>
-                  )}
+                <View style={[styles.historyMetrics, !isTablet && styles.historyMetricsLeft]}>
+                  {vital.systolicBP ? <Text style={styles.historyMetric}>BP {vital.systolicBP}/{vital.diastolicBP}</Text> : null}
+                  {vital.heartRate ? <Text style={styles.historyMetric}>HR {vital.heartRate}</Text> : null}
+                  {vital.glucose ? <Text style={styles.historyMetric}>GLU {vital.glucose}</Text> : null}
                 </View>
-              </View>
-            ))}
-          </View>
-        )}
-      </ScrollView>
+              </Pressable>
+            ))
+          )}
+        </View>
+
+        <View style={{ height: 40 }} />
+      </Animated.ScrollView>
     </View>
   );
 };
@@ -339,157 +359,263 @@ const VitalsScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
-  },
-  scroll: {
-    flex: 1,
+    backgroundColor: '#f3f6fb',
   },
   scrollContent: {
-    paddingBottom: SPACING.xxxl,
-  },
-  summarySection: {
     padding: SPACING.lg,
+    gap: SPACING.lg,
+    paddingBottom: 42,
+  },
+  section: {
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.xl,
+    padding: SPACING.lg,
+    ...SHADOW.card,
+  },
+  sectionHead: {
+    marginBottom: SPACING.md,
+  },
+  sectionHeadInline: {
+    marginBottom: SPACING.md,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   sectionTitle: {
-    ...TYPOGRAPHY.h4,
+    fontSize: 18,
+    fontWeight: '700',
     color: COLORS.textPrimary,
-    marginBottom: SPACING.xs,
   },
   lastUpdated: {
-    ...TYPOGRAPHY.bodySmall,
+    marginTop: 2,
+    fontSize: 12,
     color: COLORS.textSecondary,
-    marginBottom: SPACING.lg,
   },
-  vitalsGrid: {
+  grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: SPACING.md,
   },
   vitalCard: {
-    backgroundColor: COLORS.card,
     borderRadius: RADIUS.lg,
-    padding: SPACING.lg,
-    width: '47%',
-    ...SHADOW.card,
+    padding: SPACING.md,
+    borderWidth: 1,
+    borderColor: '#e4ebf3',
+    backgroundColor: '#f8fbff',
   },
-  vitalHeader: {
+  vitalCardDesktop: {
+    width: '23.5%',
+  },
+  vitalCardTablet: {
+    width: '48%',
+  },
+  vitalCardMobile: {
+    width: '100%',
+  },
+  vitalCardHover: {
+    borderColor: '#bcd8ef',
+    backgroundColor: '#f3f9ff',
+  },
+  vitalCardPressed: {
+    transform: [{ scale: 0.99 }],
+  },
+  vitalCardTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: SPACING.sm,
   },
-  vitalIcon: {
-    fontSize: 24,
+  vitalIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#ddf4ef',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  statusBadge: {
-    paddingHorizontal: SPACING.sm,
+  statusPill: {
+    borderRadius: 999,
     paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 8,
   },
-  statusText: {
+  statusPillText: {
     fontSize: 10,
-    fontWeight: '600',
-    textTransform: 'uppercase',
+    fontWeight: '700',
   },
   vitalValue: {
-    ...TYPOGRAPHY.h3,
+    fontSize: 28,
+    fontWeight: '800',
     color: COLORS.textPrimary,
-    marginBottom: 2,
+    lineHeight: 32,
   },
   vitalUnit: {
-    ...TYPOGRAPHY.bodySmall,
+    fontSize: 11,
     color: COLORS.textSecondary,
-    fontSize: 14,
   },
   vitalTitle: {
-    ...TYPOGRAPHY.bodySmall,
+    marginTop: 6,
+    fontSize: 13,
     color: COLORS.textSecondary,
-    marginBottom: 2,
+    fontWeight: '600',
   },
-  normalRange: {
-    ...TYPOGRAPHY.caption,
-    color: COLORS.textLight,
-    fontSize: 11,
+  toggleText: {
+    color: COLORS.primary,
+    fontSize: 13,
+    fontWeight: '700',
   },
   formCard: {
-    backgroundColor: COLORS.card,
+    borderWidth: 1,
+    borderColor: '#e7edf5',
     borderRadius: RADIUS.lg,
-    padding: SPACING.xl,
-    margin: SPACING.lg,
-    ...SHADOW.card,
+    backgroundColor: '#f8fbff',
+    padding: SPACING.md,
+    gap: SPACING.sm,
   },
-  formTitle: {
-    ...TYPOGRAPHY.h4,
-    color: COLORS.textPrimary,
-    marginBottom: SPACING.lg,
-  },
-  formRow: {
+  row: {
     flexDirection: 'row',
-    gap: SPACING.md,
-    marginBottom: SPACING.md,
+    gap: SPACING.sm,
   },
-  formField: {
+  rowStack: {
+    flexDirection: 'column',
+  },
+  field: {
     flex: 1,
   },
+  fieldSingle: {
+    marginTop: 2,
+  },
   label: {
-    ...TYPOGRAPHY.label,
+    fontSize: 12,
+    fontWeight: '700',
     color: COLORS.textSecondary,
-    marginBottom: SPACING.xs,
+    marginBottom: 5,
   },
   input: {
+    backgroundColor: COLORS.white,
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: RADIUS.md,
-    padding: SPACING.md,
-    fontSize: 16,
-    backgroundColor: COLORS.background,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    color: COLORS.textPrimary,
+    fontSize: 14,
   },
   textArea: {
-    height: 80,
+    minHeight: 76,
     textAlignVertical: 'top',
   },
-  formActions: {
+  actionsRow: {
+    marginTop: 8,
     flexDirection: 'row',
-    gap: SPACING.md,
-    marginTop: SPACING.lg,
+    gap: SPACING.sm,
+  },
+  actionsColumn: {
+    flexDirection: 'column',
   },
   cancelBtn: {
     flex: 1,
+    borderWidth: 1,
+    borderColor: '#d9e1ea',
+    borderRadius: RADIUS.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 11,
+    backgroundColor: '#fff',
+  },
+  cancelBtnHover: {
+    backgroundColor: '#f5f8fb',
+  },
+  cancelBtnPress: {
+    transform: [{ scale: 0.99 }],
+  },
+  cancelBtnText: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    fontWeight: '700',
   },
   saveBtn: {
-    flex: 2,
+    flex: 1.3,
+    borderRadius: RADIUS.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 11,
+    backgroundColor: COLORS.primary,
+  },
+  saveBtnHover: {
+    backgroundColor: COLORS.primaryDark,
+  },
+  saveBtnPress: {
+    transform: [{ scale: 0.99 }],
+  },
+  saveBtnText: {
+    color: COLORS.white,
+    fontSize: 13,
+    fontWeight: '700',
   },
   addBtn: {
-    margin: SPACING.lg,
+    borderRadius: RADIUS.lg,
+    backgroundColor: COLORS.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
   },
-  historySection: {
-    padding: SPACING.lg,
+  addBtnHover: {
+    backgroundColor: COLORS.primaryDark,
+  },
+  addBtnPress: {
+    transform: [{ scale: 0.99 }],
+  },
+  addBtnText: {
+    color: COLORS.white,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  emptyText: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
   },
   historyItem: {
-    flexDirection: 'row',
-    backgroundColor: COLORS.card,
-    borderRadius: RADIUS.md,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#e8eef5',
+    borderRadius: RADIUS.lg,
+    backgroundColor: '#f8fbff',
     padding: SPACING.md,
-    marginBottom: SPACING.sm,
-    ...SHADOW.card,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  historyLeft: {
-    marginRight: SPACING.md,
-    minWidth: 70,
+  historyItemStack: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 6,
+  },
+  historyItemHover: {
+    backgroundColor: '#f3f8fe',
+    borderColor: '#cddfed',
   },
   historyDate: {
-    ...TYPOGRAPHY.label,
+    fontSize: 13,
+    fontWeight: '700',
     color: COLORS.textPrimary,
   },
   historyTime: {
-    ...TYPOGRAPHY.caption,
+    marginTop: 2,
+    fontSize: 12,
     color: COLORS.textSecondary,
   },
-  historyValues: {
-    flex: 1,
+  historyMetrics: {
+    alignItems: 'flex-end',
+    gap: 1,
   },
-  historyValue: {
-    ...TYPOGRAPHY.bodySmall,
+  historyMetricsLeft: {
+    alignItems: 'flex-start',
+  },
+  historyMetric: {
+    fontSize: 12,
+    fontWeight: '600',
     color: COLORS.textSecondary,
   },
 });

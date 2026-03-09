@@ -9,7 +9,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -73,26 +75,83 @@ public class MedicationScheduleService {
         LocalDate startDate = schedule.getStartDate();
         LocalDate endDate = schedule.getEndDate();
         
-        if (startDate == null || endDate == null || schedule.getScheduledTimes() == null) {
+        if (startDate == null || schedule.getScheduledTimes() == null || schedule.getScheduledTimes().isEmpty()) {
             return;
         }
 
         DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("hh:mm a");
-        LocalDate currentDate = startDate;
-        while (!currentDate.isAfter(endDate)) {
-            for (var time : schedule.getScheduledTimes()) {
+        LocalDate today = LocalDate.now();
+        LocalDate maxWindowEnd = today.plusDays(30);
+        LocalDate effectiveEnd = endDate != null ? endDate : maxWindowEnd;
+        LocalDate targetEnd = effectiveEnd.isBefore(maxWindowEnd) ? effectiveEnd : maxWindowEnd;
+        List<LocalTime> effectiveTimes = getTimesForFrequency(schedule.getFrequency(), schedule.getScheduledTimes());
+        
+        // If start date is in the past or today, start from today
+        LocalDate currentDate = startDate.isAfter(today) ? startDate : today;
+        
+        while (!currentDate.isAfter(targetEnd)) {
+            for (var time : effectiveTimes) {
                 IntakeLog log = new IntakeLog();
                 log.setPatientId(schedule.getPatientId());
                 log.setMedicationId(schedule.getMedicationId());
                 log.setMedicationName(schedule.getMedicationName());
                 log.setDosageQuantity(1); // Default to 1, dosage info is in schedule
                 log.setScheduledDate(currentDate);
-                log.setScheduledTime(time.format(timeFormatter));
-                log.setStatus("PENDING");
+                String formattedTime = time.format(timeFormatter);
+                log.setScheduledTime(formattedTime);
+
+                boolean alreadyExists = intakeLogRepository.existsByPatientIdAndMedicationNameAndScheduledDateAndScheduledTime(
+                        schedule.getPatientId(),
+                        schedule.getMedicationName(),
+                        currentDate,
+                        formattedTime
+                );
+                if (alreadyExists) {
+                    continue;
+                }
+                
+                // If it's today and the time has passed, mark as MISSED, otherwise PENDING
+                if (currentDate.equals(today)) {
+                    java.time.LocalTime now = java.time.LocalTime.now();
+                    java.time.LocalTime scheduledTime = time;
+                    if (scheduledTime.isBefore(now.minusMinutes(5))) {
+                        log.setStatus("MISSED");
+                    } else {
+                        log.setStatus("PENDING");
+                    }
+                } else {
+                    log.setStatus("PENDING");
+                }
+                
                 log.setCreatedAt(LocalDateTime.now());
                 intakeLogRepository.save(log);
             }
             currentDate = currentDate.plusDays(1);
         }
+    }
+
+    private List<LocalTime> getTimesForFrequency(String frequency, List<LocalTime> scheduledTimes) {
+        int requiredSlots = getRequiredSlots(frequency);
+        if (requiredSlots == 0) {
+            return scheduledTimes;
+        }
+
+        List<LocalTime> times = new ArrayList<>(scheduledTimes);
+        times.sort(LocalTime::compareTo);
+        if (times.size() > requiredSlots) {
+            return times.subList(0, requiredSlots);
+        }
+        return times;
+    }
+
+    private int getRequiredSlots(String frequency) {
+        if (frequency == null) return 0;
+        return switch (frequency) {
+            case "ONCE_DAILY" -> 1;
+            case "TWICE_DAILY" -> 2;
+            case "THREE_TIMES_DAILY" -> 3;
+            case "FOUR_TIMES_DAILY" -> 4;
+            default -> 0;
+        };
     }
 }

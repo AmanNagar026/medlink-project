@@ -3,9 +3,23 @@ import { StatusBar } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/context/AuthContext';
 import { UserProvider } from './src/context/UserContext';
+import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import { configureNotifications } from './src/config/notificationConfig';
-import COLORS from './src/utils/colors';
+
+const AppContent = () => {
+  const { isDark, colors } = useTheme();
+
+  return (
+    <>
+      <StatusBar
+        barStyle={isDark ? 'light-content' : 'dark-content'}
+        backgroundColor={colors.background}
+      />
+      <AppNavigator />
+    </>
+  );
+};
 
 const App = () => {
   useEffect(() => {
@@ -18,12 +32,13 @@ const App = () => {
 
   return (
     <SafeAreaProvider>
-      <AuthProvider>
-        <UserProvider>
-          <StatusBar barStyle="light-content" backgroundColor={COLORS.primaryDark} />
-          <AppNavigator />
-        </UserProvider>
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <UserProvider>
+            <AppContent />
+          </UserProvider>
+        </AuthProvider>
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 };
