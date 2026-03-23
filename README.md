@@ -1,5 +1,5 @@
 # medlink-project
-The Online Medication and Prescription Tracker is a full-stack web application developed to support digital prescription management and structured medication tracking. The system focuses on improving medication adherence through secure access and organized record management.
+Medlink is a full-stack web application developed to support digital prescription management and structured medication tracking. The system focuses on improving medication adherence through secure access and organized record management.
 
 ---
 
